@@ -1,0 +1,182 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+
+type ExerciseData = {
+  id?: string;
+  name: string;
+  sets?: number;
+  reps?: string;
+  duration?: string;
+  distance?: string;
+  weight?: string;
+  notes?: string;
+  videoId?: string;
+};
+
+interface ExerciseProps {
+  exercise: ExerciseData;
+  logKeyBase: string;      // e.g. sfprep:log:foundation:1:monday:<exId>
+  isCompleted: boolean;
+  onToggleComplete: () => void;
+}
+
+type LogEntry = {
+  date: string;
+  sets?: string;
+  reps?: string;
+  weight?: string;
+  time?: string;
+  notes?: string;
+};
+
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete }: ExerciseProps) {
+  const [showVideo, setShowVideo] = useState(false);
+  const [showLog, setShowLog] = useState(false);
+  const [entry, setEntry] = useState<LogEntry>({ date: todayISO() });
+  const [saved, setSaved] = useState<LogEntry | null>(null);
+
+  const logKey = `${logKeyBase}:${entry.date}`;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = localStorage.getItem(logKey);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as LogEntry;
+        setSaved(parsed);
+        setEntry(parsed);
+      } catch { /* ignore */ }
+    } else {
+      setSaved(null);
+    }
+  }, [logKey]);
+
+  const save = () => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(logKey, JSON.stringify(entry));
+    setSaved(entry);
+    setShowLog(false);
+  };
+
+  return (
+    <div className={`p-3 rounded ${isCompleted ? 'bg-gray-700' : 'bg-gray-750'}`}>
+      <div className="flex justify-between items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onToggleComplete}
+              className={`w-6 h-6 shrink-0 rounded border-2 flex items-center justify-center ${
+                isCompleted ? 'bg-blue-600 border-blue-600' : 'border-gray-500 hover:border-gray-400'
+              }`}
+              aria-label="toggle complete"
+            >
+              {isCompleted && (
+                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+              )}
+            </button>
+            <h3 className={`font-medium ${isCompleted ? 'line-through text-gray-500' : ''}`}>{exercise.name}</h3>
+          </div>
+          <div className="ml-9 mt-1 text-sm text-gray-400 flex flex-wrap gap-x-3">
+            {exercise.sets ? <span>{exercise.sets} sets</span> : null}
+            {exercise.reps ? <span>{exercise.reps} reps</span> : null}
+            {exercise.duration ? <span>{exercise.duration}</span> : null}
+            {exercise.distance ? <span>{exercise.distance}</span> : null}
+            {exercise.weight ? <span>{exercise.weight}</span> : null}
+          </div>
+          {exercise.notes && (
+            <p className="ml-9 mt-2 text-xs text-gray-500 italic">{exercise.notes}</p>
+          )}
+          {saved && (
+            <div className="ml-9 mt-2 text-xs text-emerald-400">
+              Logged {saved.date}: {[saved.sets && `${saved.sets}×`, saved.reps && `${saved.reps} reps`, saved.weight && saved.weight, saved.time && saved.time].filter(Boolean).join(' · ')}
+              {saved.notes ? ` — ${saved.notes}` : ''}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col gap-1 shrink-0">
+          {exercise.videoId && (
+            <button
+              onClick={() => setShowVideo(v => !v)}
+              className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs"
+            >
+              {showVideo ? 'Hide' : 'Video'}
+            </button>
+          )}
+          <button
+            onClick={() => setShowLog(l => !l)}
+            className="bg-emerald-700 hover:bg-emerald-600 px-3 py-1 rounded text-xs"
+          >
+            {showLog ? 'Close' : 'Log'}
+          </button>
+        </div>
+      </div>
+
+      {showLog && (
+        <div className="mt-3 ml-9 p-3 bg-gray-900 rounded space-y-2 border border-gray-700">
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-xs text-gray-400">
+              Date
+              <input type="date" value={entry.date} onChange={e => setEntry({...entry, date: e.target.value})}
+                className="w-full bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm mt-1" />
+            </label>
+            <label className="text-xs text-gray-400">
+              Sets
+              <input value={entry.sets ?? ''} placeholder={exercise.sets?.toString() ?? ''}
+                onChange={e => setEntry({...entry, sets: e.target.value})}
+                className="w-full bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm mt-1" />
+            </label>
+            <label className="text-xs text-gray-400">
+              Reps
+              <input value={entry.reps ?? ''} placeholder={exercise.reps ?? ''}
+                onChange={e => setEntry({...entry, reps: e.target.value})}
+                className="w-full bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm mt-1" />
+            </label>
+            <label className="text-xs text-gray-400">
+              Weight
+              <input value={entry.weight ?? ''} placeholder={exercise.weight ?? 'lb'}
+                onChange={e => setEntry({...entry, weight: e.target.value})}
+                className="w-full bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm mt-1" />
+            </label>
+            <label className="text-xs text-gray-400 col-span-2">
+              Time / Distance
+              <input value={entry.time ?? ''} placeholder={exercise.duration ?? exercise.distance ?? ''}
+                onChange={e => setEntry({...entry, time: e.target.value})}
+                className="w-full bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm mt-1" />
+            </label>
+            <label className="text-xs text-gray-400 col-span-2">
+              Notes
+              <textarea value={entry.notes ?? ''} rows={2}
+                onChange={e => setEntry({...entry, notes: e.target.value})}
+                className="w-full bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm mt-1" />
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={save} className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm">Save</button>
+            <button onClick={() => setShowLog(false)} className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {showVideo && exercise.videoId && (
+        <div className="mt-4 ml-9">
+          <div className="relative" style={{ paddingBottom: '56.25%' }}>
+            <iframe
+              className="absolute top-0 left-0 w-full h-full rounded"
+              src={`https://www.youtube.com/embed/${exercise.videoId}`}
+              title={exercise.name}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
