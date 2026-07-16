@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { SyncBoot } from "./components/SyncBoot";
 
 export const metadata: Metadata = {
   title: "SF Prep Tracker",
@@ -15,6 +16,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-gray-900 text-gray-100">
         {children}
+        <SyncBoot />
       </body>
     </html>
   );

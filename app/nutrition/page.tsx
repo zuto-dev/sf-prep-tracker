@@ -3,6 +3,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Nav } from '../components/Nav';
 import { FOODS, searchFoods, type Food } from '../data/foods';
+import { SupsLog } from '../components/SupsLog';
+import { useMeals, addMeal, removeMeal, searchMeals, type UserMeal } from '../data/meals';
+import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
+import { FOUNDATION_TARGETS, PEAK_TARGETS, normalizeNutritionStore } from '../lib/nutrition-execution';
+import {
+  scoreMealRecommendation,
+  classifyWindow,
+  windowLabel,
+  windowGuidance,
+  type TrainingType,
+  type SuggestionContext,
+} from '../lib/nutrient-timing';
 
 type Meal = 'breakfast' | 'lunch' | 'dinner' | 'snacks';
 type Entry = { foodId: string; servings: number };
@@ -13,11 +25,20 @@ type NutritionStore = {
   preset: 'foundation' | 'peak' | 'custom';
 };
 
+type Suggestion = {
+  title: string;
+  note: string;
+  items: Entry[];
+  accent: string;
+};
+
+type CoachMessage = { role: 'user' | 'assistant'; text: string; image?: string };
+
 const KEY = 'sfprep:nutrition';
 const emptyDay = (): DayLog => ({ breakfast: [], lunch: [], dinner: [], snacks: [] });
 const PRESETS = {
-  foundation: { kcal: 2800, p: 180, c: 320, f: 80 },
-  peak:       { kcal: 2400, p: 200, c: 240, f: 75 },
+  foundation: FOUNDATION_TARGETS,
+  peak: PEAK_TARGETS,
 };
 const defaultStore: NutritionStore = { days: {}, targets: PRESETS.foundation, preset: 'foundation' };
 
@@ -27,15 +48,24 @@ function load(): NutritionStore {
     const raw = localStorage.getItem(KEY);
     if (!raw) return defaultStore;
     const parsed = JSON.parse(raw) as NutritionStore;
-    return { ...defaultStore, ...parsed, days: parsed.days ?? {}, targets: parsed.targets ?? PRESETS.foundation };
+    return normalizeNutritionStore({ ...defaultStore, ...parsed, days: parsed.days ?? {}, targets: parsed.targets ?? PRESETS.foundation });
   } catch { return defaultStore; }
 }
 function save(s: NutritionStore) {
   if (typeof window === 'undefined') return;
   localStorage.setItem(KEY, JSON.stringify(s));
+  void pushSfprepSync();
 }
 
-const foodById = new Map(FOODS.map(f => [f.id, f]));
+const foodById = new Map<string, Food>(FOODS.map(f => [f.id, f]));
+// Registers user meals so foodById.get() works for meal IDs anywhere in this module.
+function registerMeals(meals: UserMeal[]) {
+  // Clear only user-meal IDs (leave base FOODS intact)
+  for (const key of Array.from(foodById.keys())) {
+    if (key.startsWith('meal:')) foodById.delete(key);
+  }
+  for (const m of meals) foodById.set(m.id, m);
+}
 
 function totals(entries: Entry[]) {
   return entries.reduce((acc, e) => {
@@ -55,22 +85,292 @@ function dayTotals(d: DayLog) {
 function fmt(n: number) { return Math.round(n).toLocaleString(); }
 function iso(d: Date) { return d.toISOString().slice(0,10); }
 
-function FoodSearch({ onPick }: { onPick: (f: Food) => void }) {
+function macroLine(t: { kcal: number; p: number; c: number; f: number }) {
+  return `${fmt(t.kcal)} kcal · ${fmt(t.p)}g P · ${fmt(t.c)}g C · ${fmt(t.f)}g F`;
+}
+
+function planTotals(items: Entry[]) {
+  return totals(items);
+}
+
+function pickSuggestion(
+  kind: 'protein' | 'carb' | 'fat' | 'balanced',
+  gap: { kcal: number; p: number; c: number; f: number },
+  seed: number = 0,
+  context?: SuggestionContext,
+): Suggestion {
+  const pools = {
+    protein: [
+      { title: 'Lean protein top-up', note: 'Fastest way to close a protein gap without adding much fat.', items: [{ foodId: 'whey-scoop', servings: 1 }] },
+      { title: 'Real-food protein', note: 'Better if you want something more filling than a shake.', items: [{ foodId: 'rotisserie', servings: 1 }] },
+      { title: 'Protein snack', note: 'Easy if you still need protein but want a softer landing.', items: [{ foodId: 'greek-yogurt', servings: 1 }, { foodId: 'berries-mixed', servings: 1 }] },
+      { title: 'Protein + carbs', note: 'Best after training when both protein and carbs are short.', items: [{ foodId: 'whey-1_5', servings: 1 }] },
+    ],
+    carb: [
+      { title: 'Carb reload', note: 'Good when calories and carbs are both low.', items: [{ foodId: 'jasmine-pouch', servings: 1 }] },
+      { title: 'Simple carb bump', note: 'Easy calories if you need a smaller refill.', items: [{ foodId: 'banana', servings: 2 }] },
+      { title: 'Breakfast carb fix', note: 'A clean way to bring carbs up without a ton of prep.', items: [{ foodId: 'oats-dry', servings: 1 }, { foodId: 'honey', servings: 1 }] },
+      { title: 'Carbs + protein', note: 'Useful when you want the meal to also help recovery.', items: [{ foodId: 'bagel', servings: 1 }, { foodId: 'whey-scoop', servings: 1 }] },
+    ],
+    fat: [
+      { title: 'Fat bump', note: 'Use when you still need a little fat but not a full meal.', items: [{ foodId: 'avocado', servings: 1 }] },
+      { title: 'Dense calories', note: 'Best if fats are the last macro standing.', items: [{ foodId: 'peanut-butter', servings: 1 }] },
+      { title: 'Clean fat + protein', note: 'A better finish than random snack food.', items: [{ foodId: 'salmon', servings: 1 }] },
+      { title: 'Small fat add-on', note: 'A subtle way to bring fat up without changing the whole meal.', items: [{ foodId: 'olive-oil', servings: 1 }] },
+    ],
+    balanced: [
+      { title: 'Full breakfast-style refill', note: 'Best when all the macros are behind.', items: [{ foodId: 'plan-d-breakfast', servings: 1 }] },
+      { title: 'Post-workout bowl', note: 'Strong default when protein and carbs both need help.', items: [{ foodId: 'salsa-chicken', servings: 1 }] },
+      { title: 'Easy dinner reset', note: 'A balanced meal when you want the simplest path back on target.', items: [{ foodId: 'fried-rice', servings: 1 }] },
+      { title: 'Heavier dinner', note: 'Use when you need more calories and don\'t mind a denser plate.', items: [{ foodId: 'beef-chili', servings: 1 }] },
+    ],
+  };
+
+  const list = pools[kind];
+  const weightedScore = (item: { title: string; note: string; items: Entry[] }) => {
+    const t = planTotals(item.items);
+    // Context-aware scoring (SECTION 4.3): when we know the time-of-day and
+    // training schedule, let the Gaussian nutrient-timing curve steer ranking
+    // instead of the old fixed multipliers.
+    if (context) return scoreMealRecommendation(t, context);
+    if (kind === 'protein') return t.p * 5 - t.f * 1.5 - t.c * 0.5 - t.kcal * 0.01;
+    if (kind === 'carb') return t.c * 4 - t.p * 0.5 - t.f * 0.4 - t.kcal * 0.01;
+    if (kind === 'fat') return t.f * 4 - t.p * 0.25 - t.c * 0.2 - t.kcal * 0.01;
+    const remainingScore = Math.abs(gap.p - t.p) + Math.abs(gap.c - t.c) + Math.abs(gap.f - t.f) + Math.abs(gap.kcal - t.kcal) / 75;
+    return 100 - remainingScore;
+  };
+
+  const sorted = [...list].sort((a, b) => weightedScore(b) - weightedScore(a));
+  // Rotate through the top candidates so Refresh gives new options
+  const best = sorted[seed % sorted.length];
+  const totalsText = macroLine(planTotals(best.items));
+  const gapText = kind === 'protein'
+    ? `${Math.max(0, Math.round(gap.p))}g short on protein`
+    : kind === 'carb'
+      ? `${Math.max(0, Math.round(gap.c))}g short on carbs`
+      : kind === 'fat'
+        ? `${Math.max(0, Math.round(gap.f))}g short on fat`
+        : `aiming at the full gap`
+
+  return {
+    title: best.title,
+    note: `${best.note} · ${totalsText}${gapText ? ` · ${gapText}` : ''}`,
+    items: best.items,
+    accent: kind === 'protein' ? 'text-emerald-300' : kind === 'carb' ? 'text-sky-300' : kind === 'fat' ? 'text-amber-300' : 'text-violet-300',
+  };
+}
+
+function coachReply(
+  prompt: string,
+  t: { kcal: number; p: number; c: number; f: number },
+  remaining: { kcal: number; p: number; c: number; f: number },
+  targets: { kcal: number; p: number; c: number; f: number },
+) {
+  const p = prompt.toLowerCase();
+  const gapLine = `You're at ${macroLine(t)} and still have ${fmt(Math.max(0, remaining.kcal))} kcal · ${fmt(Math.max(0, remaining.p))}g P · ${fmt(Math.max(0, remaining.c))}g C · ${fmt(Math.max(0, remaining.f))}g F left.`;
+  if (/(pre|before).*(workout|training)|before workout|pre-workout/.test(p)) {
+    return [
+      'Pre-workout: keep it light on fat/fiber and lean on carbs + a little protein.',
+      '60-90 min out: 25-40g carbs + 10-20g protein. If you are tight on time, do a shake + banana.',
+      `If your workout is hard or long, bias carbs first. ${gapLine}`,
+    ].join(' ');
+  }
+  if (/(post|after).*(workout|training)|post-workout|after workout/.test(p)) {
+    return [
+      'Post-workout: get protein in soon, then add carbs if you trained hard.',
+      'Target 30-40g protein + 30-60g carbs inside the next 1-2 hours. Keep fats lower if you want the meal to digest fast.',
+      `Best move is the easiest meal you will actually eat. ${gapLine}`,
+    ].join(' ');
+  }
+  if (/plan|meal plan|schedule|timing|how many meals|split/.test(p)) {
+    return [
+      'Meal plan: split the day into 3 anchor meals and 1 smaller recovery slot.',
+      `Use roughly 30% / 30% / 30% / 10% of your remaining macros, then shift carbs toward the workout and protein to the meal after it.`,
+      `For your current day, that means ${fmt(Math.max(0, remaining.p / 3))}g protein-ish chunks and ${fmt(Math.max(0, remaining.c / 3))}g carb chunks per big meal.`,
+    ].join(' ');
+  }
+  if (/morning|breakfast/.test(p)) {
+    return [
+      'Breakfast answer: protein first, then carbs if you train later.',
+      'If workout is within ~2 hours, keep breakfast low fat and let carbs do the work.',
+      gapLine,
+    ].join(' ');
+  }
+  return [
+    'Short answer: tell me whether this is pre-workout, post-workout, or a full-day meal plan and I will tighten it up.',
+    'Default rule: protein every meal, carbs around training, fats farther away from the session.',
+    gapLine,
+  ].join(' ');
+}
+
+function buildSuggestions(
+  t: { kcal: number; p: number; c: number; f: number },
+  target: { kcal: number; p: number; c: number; f: number },
+  seed: number = 0,
+  context?: SuggestionContext,
+) {
+  const gap = {
+    kcal: target.kcal - t.kcal,
+    p: target.p - t.p,
+    c: target.c - t.c,
+    f: target.f - t.f,
+  };
+  const ranked = [
+    { kind: 'protein' as const, score: gap.p },
+    { kind: 'carb' as const, score: gap.c },
+    { kind: 'fat' as const, score: gap.f },
+    { kind: 'balanced' as const, score: Math.max(gap.kcal, 0) + Math.max(gap.p, 0) + Math.max(gap.c, 0) + Math.max(gap.f, 0) },
+  ];
+  const order = ranked
+    .sort((a, b) => b.score - a.score)
+    .map(item => item.kind);
+
+  const seen = new Set<string>();
+  return order
+    .map((kind, i) => pickSuggestion(kind, gap, seed + i, context))
+    .filter(s => {
+      if (seen.has(s.title)) return false;
+      seen.add(s.title);
+      return true;
+    })
+    .slice(0, 3);
+}
+
+function MealsLibrary({ meals, builtIn = [] }: { meals: UserMeal[]; builtIn?: Food[] }) {
+  const [form, setForm] = useState({ name: '', serving: '1 serving', kcal: '', p: '', c: '', f: '' });
+  const canSave = form.name.trim() && form.kcal && form.p;
+
+  const save = () => {
+    if (!canSave) return;
+    addMeal({
+      name: form.name.trim(),
+      serving: form.serving.trim() || '1 serving',
+      servingG: 0,
+      kcal: parseFloat(form.kcal) || 0,
+      p: parseFloat(form.p) || 0,
+      c: parseFloat(form.c) || 0,
+      f: parseFloat(form.f) || 0,
+      source: 'manual',
+    });
+    setForm({ name: '', serving: '1 serving', kcal: '', p: '', c: '', f: '' });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-gray-800 rounded-lg p-4">
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="font-semibold">Add a meal</h2>
+          <span className="text-xs text-gray-500">Save recipes so you can log them by name later</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <input placeholder="Name (e.g. High Protein Chicken Pasta)"
+            value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            className="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm md:col-span-2" />
+          <input placeholder="Serving label (e.g. 1 bowl, 376g)"
+            value={form.serving} onChange={e => setForm(f => ({ ...f, serving: e.target.value }))}
+            className="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm md:col-span-2" />
+          <input placeholder="kcal" type="number" inputMode="decimal"
+            value={form.kcal} onChange={e => setForm(f => ({ ...f, kcal: e.target.value }))}
+            className="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm" />
+          <input placeholder="Protein (g)" type="number" inputMode="decimal"
+            value={form.p} onChange={e => setForm(f => ({ ...f, p: e.target.value }))}
+            className="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm" />
+          <input placeholder="Carbs (g)" type="number" inputMode="decimal"
+            value={form.c} onChange={e => setForm(f => ({ ...f, c: e.target.value }))}
+            className="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm" />
+          <input placeholder="Fat (g)" type="number" inputMode="decimal"
+            value={form.f} onChange={e => setForm(f => ({ ...f, f: e.target.value }))}
+            className="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm" />
+        </div>
+        <div className="mt-3">
+          <button onClick={save} disabled={!canSave}
+            className="px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 text-sm text-white">
+            Save to library
+          </button>
+          <span className="text-xs text-gray-500 ml-3">Tip: use the Coach — paste a recipe screenshot and say &quot;save this as a meal&quot;.</span>
+        </div>
+      </div>
+
+      <div className="bg-gray-800 rounded-lg p-4">
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="font-semibold">Built-in meals ({builtIn.length})</h2>
+          <span className="text-xs text-gray-500">Preloaded recipes — searchable in every meal slot</span>
+        </div>
+        {builtIn.length === 0 ? (
+          <div className="text-sm text-gray-500 py-4 text-center">None yet.</div>
+        ) : (
+          <ul className="divide-y divide-gray-700">
+            {builtIn.map(m => (
+              <li key={m.id} className="py-3">
+                <div className="font-medium text-gray-100"><span className="text-blue-400 mr-1.5">■</span>{m.name}</div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  {m.serving} · {Math.round(m.kcal)} kcal · {Math.round(m.p)}g P · {Math.round(m.c)}g C · {Math.round(m.f)}g F
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="bg-gray-800 rounded-lg p-4">
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="font-semibold">Your meals ({meals.length})</h2>
+          {meals.length > 0 && <span className="text-xs text-gray-500">Search-ready in every meal slot</span>}
+        </div>
+        {meals.length === 0 ? (
+          <div className="text-sm text-gray-500 py-4 text-center">
+            No saved meals yet. Add one above, or ask the Coach to save one from a screenshot.
+          </div>
+        ) : (
+          <ul className="divide-y divide-gray-700">
+            {[...meals].reverse().map(m => (
+              <li key={m.id} className="py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-gray-100 truncate">
+                    <span className="text-emerald-400 mr-1.5">◆</span>{m.name}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    {m.serving} · {Math.round(m.kcal)} kcal · {Math.round(m.p)}g P · {Math.round(m.c)}g C · {Math.round(m.f)}g F
+                    {m.source && <span className="ml-2 text-[10px] text-gray-600">via {m.source}</span>}
+                  </div>
+                </div>
+                <button onClick={() => { if (confirm(`Remove "${m.name}"?`)) removeMeal(m.id); }}
+                  className="text-xs text-gray-500 hover:text-red-400 px-2">Remove</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FoodSearch({ onPick, extraFoods = [] }: { onPick: (f: Food) => void; extraFoods?: Food[] }) {
   const [q, setQ] = useState('');
-  const results = useMemo(() => searchFoods(q, 15), [q]);
+  const results = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return searchFoods(q, 15);
+    const meals = extraFoods.filter(f => f.name.toLowerCase().includes(s));
+    const foods = searchFoods(q, 15);
+    // Meals first — they're your saved recipes and more likely what you want
+    return [...meals, ...foods].slice(0, 20);
+  }, [q, extraFoods]);
   return (
     <div className="relative">
       <input value={q} onChange={e => setQ(e.target.value)}
-        placeholder="Search foods (chicken, oats, banana...)"
+        placeholder="Search foods or your saved meals..."
         className="w-full bg-gray-900 border border-gray-700 px-3 py-2 rounded text-sm" />
       {q && results.length > 0 && (
         <ul className="absolute z-10 left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-gray-900 border border-gray-700 rounded shadow-lg">
           {results.map(f => (
             <li key={f.id}>
               <button onClick={() => { onPick(f); setQ(''); }}
-                className="w-full text-left px-3 py-2 hover:bg-gray-800 text-sm flex justify-between">
-                <span>{f.name} <span className="text-xs text-gray-500">· {f.serving}</span></span>
-                <span className="text-xs text-gray-400">{f.kcal} kcal · {f.p}g P</span>
+                className="w-full text-left px-3 py-2 hover:bg-gray-800 text-sm flex justify-between items-center gap-2">
+                <span className="min-w-0 flex-1 truncate">
+                  {f.cat === 'meal' && <span className="text-[10px] text-emerald-400 mr-1.5">◆</span>}
+                  {f.name} <span className="text-xs text-gray-500">· {f.serving}</span>
+                </span>
+                <span className="text-xs text-gray-400 flex-shrink-0">{f.kcal} kcal · {f.p}g P</span>
               </button>
             </li>
           ))}
@@ -80,20 +380,47 @@ function FoodSearch({ onPick }: { onPick: (f: Food) => void }) {
   );
 }
 
-function MealBlock({ meal, entries, onAdd, onRemove, onChangeServing }: {
+function MealBlock({ meal, entries, onAdd, onRemove, onChangeServing, extraFoods }: {
   meal: Meal; entries: Entry[];
   onAdd: (f: Food) => void;
   onRemove: (i: number) => void;
   onChangeServing: (i: number, s: number) => void;
+  extraFoods?: Food[];
 }) {
   const t = totals(entries);
+  const saveAsMeal = () => {
+    if (entries.length < 2) {
+      alert('Add at least 2 items first — then save the combo as a meal.');
+      return;
+    }
+    const name = prompt(`Name this meal (e.g. "Chicken pasta dinner"):`);
+    if (!name || !name.trim()) return;
+    addMeal({
+      name: name.trim(),
+      serving: '1 serving',
+      servingG: 0,
+      kcal: t.kcal,
+      p: t.p,
+      c: t.c,
+      f: t.f,
+      source: 'manual',
+    });
+  };
   return (
     <div className="bg-gray-800 rounded-lg p-4">
       <div className="flex justify-between items-baseline mb-2">
         <h3 className="font-semibold capitalize">{meal}</h3>
-        <span className="text-xs text-gray-400">{fmt(t.kcal)} kcal · {fmt(t.p)}g P · {fmt(t.c)}g C · {fmt(t.f)}g F</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">{fmt(t.kcal)} kcal · {fmt(t.p)}g P · {fmt(t.c)}g C · {fmt(t.f)}g F</span>
+          {entries.length >= 2 && (
+            <button onClick={saveAsMeal} title="Save this combo as a reusable meal"
+              className="text-[10px] text-emerald-400 hover:text-emerald-300 border border-emerald-800 rounded px-1.5 py-0.5">
+              + Save
+            </button>
+          )}
+        </div>
       </div>
-      <FoodSearch onPick={onAdd} />
+      <FoodSearch onPick={onAdd} extraFoods={extraFoods} />
       {entries.length > 0 && (
         <ul className="mt-3 space-y-1">
           {entries.map((e, i) => {
@@ -137,8 +464,15 @@ function Bar({ label, val, target, unit }: { label: string; val: number; target:
 export default function NutritionPage() {
   const [store, setStore] = useState<NutritionStore>(defaultStore);
   const [date, setDate] = useState(iso(new Date()));
-  const [view, setView] = useState<'today' | 'week'>('today');
-  useEffect(() => { setStore(load()); }, []);
+  const [view, setView] = useState<'today' | 'week' | 'meals' | 'tools'>('today');
+  const [nextMealSlot, setNextMealSlot] = useState<Meal>('lunch');
+  const [activeMealSlot, setActiveMealSlot] = useState<Meal>('lunch');
+  useEffect(() => {
+    void pullSfprepSync().finally(() => setStore(load()));
+  }, []);
+
+  const meals = useMeals();
+  useEffect(() => { registerMeals(meals); }, [meals]);
 
   const day = store.days[date] ?? emptyDay();
   const set = (nextDay: DayLog) => {
@@ -154,6 +488,9 @@ export default function NutritionPage() {
     const arr = [...day[meal]]; arr[i] = { ...arr[i], servings: s };
     set({ ...day, [meal]: arr });
   };
+  const addSuggestionToLog = (items: Entry[]) => {
+    set({ ...day, [nextMealSlot]: [...day[nextMealSlot], ...items] });
+  };
 
   const setPreset = (preset: 'foundation' | 'peak' | 'custom') => {
     const targets = preset === 'custom' ? store.targets : PRESETS[preset];
@@ -166,6 +503,165 @@ export default function NutritionPage() {
   };
 
   const t = dayTotals(day);
+  const [refreshSeed, setRefreshSeed] = useState(0);
+  const [trainingType, setTrainingType] = useState<TrainingType>('rest');
+  const [trainingTimeStr, setTrainingTimeStr] = useState('16:00');
+  const nutrientContext: SuggestionContext = useMemo(() => {
+    const now = new Date();
+    let trainingTime: Date | null = null;
+    if (trainingType !== 'rest' && trainingTimeStr) {
+      const [hh, mm] = trainingTimeStr.split(':').map(n => parseInt(n, 10));
+      if (Number.isFinite(hh) && Number.isFinite(mm)) {
+        trainingTime = new Date(now);
+        trainingTime.setHours(hh, mm, 0, 0);
+      }
+    }
+    return {
+      currentTime: now,
+      trainingTime,
+      trainingType,
+      macroGaps: {
+        kcal: store.targets.kcal - t.kcal,
+        p: store.targets.p - t.p,
+        c: store.targets.c - t.c,
+        f: store.targets.f - t.f,
+      },
+    };
+  }, [trainingType, trainingTimeStr, t, store.targets]);
+  const activeWindow = useMemo(() => classifyWindow(nutrientContext), [nutrientContext]);
+  const [coachMessages, setCoachMessages] = useState<CoachMessage[]>([
+    { role: 'assistant', text: 'Ask me about meal timing, macros, or how to plan around today\'s workout.' },
+  ]);
+  const [coachDraft, setCoachDraft] = useState('');
+  const [coachImage, setCoachImage] = useState<string | null>(null);
+  const [coachBusy, setCoachBusy] = useState(false);
+  const suggestions = useMemo(() => buildSuggestions(t, store.targets, refreshSeed, nutrientContext).slice(0, 3), [t, store.targets, refreshSeed, nutrientContext]);
+  const remaining = {
+    kcal: store.targets.kcal - t.kcal,
+    p: store.targets.p - t.p,
+    c: store.targets.c - t.c,
+    f: store.targets.f - t.f,
+  };
+
+  const sendCoach = async () => {
+    const prompt = coachDraft.trim();
+    if ((!prompt && !coachImage) || coachBusy) return;
+    const userMsg: CoachMessage = {
+      role: 'user',
+      text: prompt || (coachImage ? '(image)' : ''),
+      image: coachImage || undefined,
+    };
+    const nextMsgs: CoachMessage[] = [...coachMessages, userMsg];
+    setCoachMessages(nextMsgs);
+    setCoachDraft('');
+    setCoachImage(null);
+    setCoachBusy(true);
+    try {
+      const dayOfWeek = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+      const context = {
+        dayTotals: t,
+        remaining,
+        targets: store.targets,
+        date,
+        dayOfWeek,
+        loggedFoods: [...day.breakfast, ...day.lunch, ...day.dinner, ...day.snacks]
+          .map(e => foodById.get(e.foodId)?.name)
+          .filter(Boolean),
+      };
+      // Build OpenAI messages: if the last user message has an image, send multipart content
+      const apiMsgs = nextMsgs.map(m => {
+        if (m.role === 'user' && m.image) {
+          return {
+            role: 'user',
+            content: [
+              { type: 'text', text: m.text || 'Analyze this.' },
+              { type: 'image_url', image_url: { url: m.image } },
+            ],
+          };
+        }
+        return { role: m.role, content: m.text };
+      });
+      const r = await fetch('/api/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: apiMsgs, context }),
+      });
+      const data = await r.json();
+      const rawReply = data.error ? `⚠️ ${data.error}` : (data.reply || '(no reply)');
+
+      // Auto-save meals if the coach emitted a save_meal JSON block
+      let displayReply = rawReply;
+      const jsonMatch = rawReply.match(/\{\s*"save_meal"\s*:\s*\{[^}]+\}\s*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const m = parsed.save_meal;
+          if (m && m.name && m.kcal != null && m.p != null) {
+            addMeal({
+              name: String(m.name),
+              serving: String(m.serving || '1 serving'),
+              servingG: 0,
+              kcal: Number(m.kcal) || 0,
+              p: Number(m.p) || 0,
+              c: Number(m.c) || 0,
+              f: Number(m.f) || 0,
+              source: 'coach',
+            });
+            displayReply = rawReply.replace(/```json[\s\S]*?```/g, '').replace(jsonMatch[0], '').trim()
+              + `\n\n✅ Saved to meal library: **${m.name}** — search for it in any meal slot.`;
+          }
+        } catch { /* silent — leave raw reply */ }
+      }
+      setCoachMessages(prev => [...prev, { role: 'assistant', text: displayReply }]);
+    } catch (e) {
+      setCoachMessages(prev => [...prev, { role: 'assistant', text: `⚠️ ${String(e)}` }]);
+    } finally {
+      setCoachBusy(false);
+    }
+  };
+
+  // Downscale image before sending to keep the payload manageable
+  const attachImage = async (file: File) => {
+    const buf = await file.arrayBuffer();
+    const blob = new Blob([buf], { type: file.type });
+    const url = URL.createObjectURL(blob);
+    const img = new window.Image();
+    img.src = url;
+    await new Promise(res => { img.onload = res; });
+    const maxDim = 1024;
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width * scale;
+    canvas.height = img.height * scale;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    URL.revokeObjectURL(url);
+    setCoachImage(dataUrl);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === 'file' && it.type.startsWith('image/')) {
+        const file = it.getAsFile();
+        if (file) {
+          e.preventDefault();
+          attachImage(file);
+          return;
+        }
+      }
+    }
+  };
+
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) attachImage(f);
+    e.target.value = '';
+  };
 
   // Week summary — 7 days ending on current date
   const weekDays = useMemo(() => {
@@ -199,7 +695,7 @@ export default function NutritionPage() {
           {(['foundation','peak','custom'] as const).map(k => (
             <button key={k} onClick={() => setPreset(k)}
               className={`px-3 py-1 rounded text-xs ${store.preset === k ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
-              {k === 'foundation' ? 'Foundation (recomp 2800/180P)' : k === 'peak' ? 'Peak (cut 2400/200P)' : 'Custom'}
+              {k === 'foundation' ? 'Foundation · 2400 kcal / 180P' : k === 'peak' ? 'Peak · 2200 kcal / 200P' : 'Custom'}
             </button>
           ))}
         </div>
@@ -219,29 +715,202 @@ export default function NutritionPage() {
           className={`px-3 py-1 rounded text-sm ${view === 'today' ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-700'}`}>Today</button>
         <button onClick={() => setView('week')}
           className={`px-3 py-1 rounded text-sm ${view === 'week' ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-700'}`}>Week Summary</button>
+        <button onClick={() => setView('meals')}
+          className={`px-3 py-1 rounded text-sm ${view === 'meals' ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-700'}`}>
+          Meals <span className="text-[10px] opacity-70 ml-1">({meals.length})</span>
+        </button>
+        <button onClick={() => setView('tools')}
+          className={`px-3 py-1 rounded text-sm ${view === 'tools' ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-700'}`}>
+          Tools
+        </button>
         <input type="date" value={date} onChange={e => setDate(e.target.value)}
           className="ml-auto bg-gray-900 border border-gray-700 px-2 py-1 rounded text-sm" />
       </div>
 
       {view === 'today' ? (
-        <>
-          <div className="bg-gray-800 rounded-lg p-4 mb-4 space-y-3">
-            <div className="flex justify-between items-baseline">
-              <h2 className="font-semibold">Daily Totals</h2>
-              <span className="text-xs text-gray-400">{date}</span>
+        <div className="space-y-5">
+          <section className="mb-5 rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/50 via-gray-900 to-gray-900 p-5 shadow-xl">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-300">Daily execution · {date}</p>
+                <h2 className="mt-1 text-2xl font-black text-white">What do you need to eat next?</h2>
+                <p className="mt-1 text-sm text-gray-300">You have <span className="font-bold text-white">{fmt(Math.max(0, remaining.kcal))} kcal</span> and <span className="font-bold text-white">{fmt(Math.max(0, remaining.p))}g protein</span> left for today.</p>
+              </div>
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-right">
+                <div className="text-xs uppercase tracking-wide text-emerald-300">Target</div>
+                <div className="font-mono text-sm font-bold text-white">{fmt(store.targets.kcal)} kcal · {fmt(store.targets.p)}P</div>
+              </div>
             </div>
-            <Bar label="Calories" val={t.kcal}  target={store.targets.kcal} unit="kcal" />
-            <Bar label="Protein"  val={t.p}     target={store.targets.p}    unit="g" />
-            <Bar label="Carbs"    val={t.c}     target={store.targets.c}    unit="g" />
-            <Bar label="Fat"      val={t.f}     target={store.targets.f}    unit="g" />
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-gray-300">Training:</span>
+              {(['rest','run','ruck','strength'] as TrainingType[]).map(tt => (
+                <button key={tt} onClick={() => setTrainingType(tt)} className={`rounded-full px-3 py-1 text-xs font-bold capitalize ${trainingType === tt ? 'bg-emerald-500 text-gray-950' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>{tt}</button>
+              ))}
+              {trainingType !== 'rest' && <input type="time" value={trainingTimeStr} onChange={e => setTrainingTimeStr(e.target.value)} className="rounded bg-gray-800 px-2 py-1 text-xs text-gray-100" />}
+              <select value={nextMealSlot} onChange={e => setNextMealSlot(e.target.value as Meal)} className="ml-auto rounded bg-gray-800 px-2 py-1 text-xs text-gray-100">
+                {(['breakfast','lunch','dinner','snacks'] as Meal[]).map(slot => <option key={slot} value={slot}>Log next move to {slot}</option>)}
+              </select>
+            </div>
+          </section>
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div>
+            <div className="bg-gray-800 rounded-lg p-4 mb-4 space-y-3">
+              <div className="flex justify-between items-baseline">
+                <h2 className="font-semibold">Daily Totals</h2>
+                <span className="text-xs text-gray-400">{date}</span>
+              </div>
+              <Bar label="Calories" val={t.kcal}  target={store.targets.kcal} unit="kcal" />
+              <Bar label="Protein"  val={t.p}     target={store.targets.p}    unit="g" />
+              <Bar label="Carbs"    val={t.c}     target={store.targets.c}    unit="g" />
+              <Bar label="Fat"      val={t.f}     target={store.targets.f}    unit="g" />
+            </div>
+            <div className="rounded-2xl border border-gray-800 bg-gray-900/70 p-3">
+              <div className="mb-3 grid grid-cols-4 gap-2">
+                {(['breakfast','lunch','dinner','snacks'] as Meal[]).map(slot => (
+                  <button key={slot} onClick={() => setActiveMealSlot(slot)} className={`rounded-xl px-2 py-2 text-xs font-bold capitalize ${activeMealSlot === slot ? 'bg-emerald-500 text-gray-950' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                    {slot}
+                  </button>
+                ))}
+              </div>
+              <MealBlock meal={activeMealSlot} entries={day[activeMealSlot]}
+                extraFoods={meals}
+                onAdd={addTo(activeMealSlot)} onRemove={removeFrom(activeMealSlot)} onChangeServing={setServing(activeMealSlot)} />
+            </div>
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            {(['breakfast','lunch','dinner','snacks'] as Meal[]).map(m => (
-              <MealBlock key={m} meal={m} entries={day[m]}
-                onAdd={addTo(m)} onRemove={removeFrom(m)} onChangeServing={setServing(m)} />
-            ))}
-          </div>
-        </>
+
+          <aside className="space-y-3 lg:sticky lg:top-4 self-start">
+            <div className="bg-gray-800 rounded-lg p-3 border border-gray-700">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <h2 className="font-semibold text-sm">Suggestions to hit goals</h2>
+                <button onClick={() => setRefreshSeed(s => s + 1)}
+                  title="Show different options"
+                  className="text-[11px] px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center gap-1 transition">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">
+                    <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+                    <path d="M21 3v5h-5" />
+                  </svg>
+                  Refresh
+                </button>
+              </div>
+              <div className="mb-2 rounded bg-gray-900/70 border border-gray-700 px-2 py-1.5">
+                <div className="text-[10px] font-semibold text-emerald-300">{windowLabel(activeWindow)}</div>
+                <div className="text-[10px] text-gray-400">{windowGuidance(activeWindow)}</div>
+              </div>
+              <p className="text-[11px] text-gray-400 mb-2">
+                Remaining: {fmt(Math.max(0, remaining.kcal))} kcal · {fmt(Math.max(0, remaining.p))}g P · {fmt(Math.max(0, remaining.c))}g C · {fmt(Math.max(0, remaining.f))}g F
+              </p>
+              <div className="space-y-1.5">
+                {suggestions.map(s => {
+                  const plan = planTotals(s.items);
+                  return (
+                    <div key={s.title} className="rounded bg-gray-900/70 border border-gray-700 px-2 py-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-medium text-gray-100 truncate">{s.title}</div>
+                        <div className={`text-[10px] font-mono flex-shrink-0 ${s.accent}`}>{Math.round(plan.kcal)}k · {Math.round(plan.p)}P</div>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {s.items.map(item => {
+                          const food = foodById.get(item.foodId);
+                          return food ? (
+                            <span key={`${s.title}-${item.foodId}`} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">
+                              {food.name}{item.servings !== 1 ? ` ×${item.servings}` : ''}
+                            </span>
+                          ) : null;
+                        })}
+                      </div>
+                      <button onClick={() => addSuggestionToLog(s.items)} className="mt-2 w-full rounded bg-emerald-600/90 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500">
+                        Add to {nextMealSlot}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <details className="bg-gray-800 rounded-lg p-3 border border-gray-700">
+              <summary className="flex cursor-pointer items-center justify-between gap-2 text-sm font-semibold text-gray-200">
+                <span>Need help with this meal?</span>
+                <span className="text-[11px] font-normal text-gray-500">Coach · recipe scan · timing</span>
+              </summary>
+              <div className="mt-3 flex items-center justify-between gap-2">
+              <div className="max-h-52 overflow-y-auto space-y-2 mb-2 pr-1">
+                {coachMessages.map((msg, i) => (
+                  <div
+                    key={i}
+                    className={`rounded-md px-2.5 py-2 text-[11px] leading-snug whitespace-pre-wrap border ${
+                      msg.role === 'user'
+                        ? 'ml-8 bg-blue-900/30 border-blue-800 text-blue-100'
+                        : 'mr-4 bg-gray-900/70 border-gray-700 text-gray-200'
+                    }`}
+                  >
+                    {msg.image && (
+                      <img src={msg.image} alt="pasted"
+                        className="max-w-full max-h-40 rounded border border-gray-700 mb-1" />
+                    )}
+                    {msg.text}
+                  </div>
+                ))}
+                {coachBusy && (
+                  <div className="mr-4 rounded-md px-2.5 py-2 text-[11px] bg-gray-900/70 border border-gray-700 text-gray-500">
+                    <span className="animate-pulse">thinking…</span>
+                  </div>
+                )}
+              </div>
+
+              {coachImage && (
+                <div className="mb-2 flex items-center gap-2 bg-gray-900 border border-gray-700 rounded p-1.5">
+                  <img src={coachImage} alt="attachment"
+                    className="h-12 w-12 object-cover rounded border border-gray-700" />
+                  <div className="text-[11px] text-gray-400 flex-1">Image attached — will send with next message</div>
+                  <button onClick={() => setCoachImage(null)}
+                    className="text-gray-500 hover:text-gray-300 text-xs px-1">×</button>
+                </div>
+              )}
+
+              <textarea
+                rows={3}
+                value={coachDraft}
+                onChange={e => setCoachDraft(e.target.value)}
+                onPaste={handlePaste}
+                disabled={coachBusy}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendCoach();
+                  }
+                }}
+                placeholder="Ask, or paste an image (recipe / label / meal)…"
+                className="w-full bg-gray-900 border border-gray-700 px-2.5 py-2 rounded text-[11px] text-gray-100 resize-none disabled:opacity-50"
+              />
+              <div className="mt-2 flex gap-2 items-center">
+                <label className="px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-[11px] text-gray-200 cursor-pointer" title="Attach image">
+                  📎
+                  <input type="file" accept="image/*" className="hidden" onChange={handleFileInput} />
+                </label>
+                <button
+                  onClick={sendCoach}
+                  disabled={coachBusy || (!coachDraft.trim() && !coachImage)}
+                  className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 text-[11px] text-white"
+                >
+                  Ask
+                </button>
+                <button
+                  onClick={() => { setCoachMessages([{ role: 'assistant', text: 'Ask me about meal timing, macros, or how to plan around today\'s workout.' }]); setCoachDraft(''); setCoachImage(null); }}
+                  className="px-2.5 py-1 rounded bg-gray-700 hover:bg-gray-600 text-[11px] text-gray-200 ml-auto"
+                >
+                  Clear
+                </button>
+              </div>
+              </div>
+            </details>
+          </aside>
+
+        </div>
+        </div>
+      ) : view === 'meals' ? (
+        <MealsLibrary meals={meals} builtIn={FOODS.filter(f => f.cat === 'meal')} />
+      ) : view === 'tools' ? (
+        <SupsLog />
       ) : (
         <div className="bg-gray-800 rounded-lg p-4">
           <h2 className="font-semibold mb-3">7-Day Rollup (ending {date})</h2>
@@ -277,6 +946,6 @@ export default function NutritionPage() {
           </table>
         </div>
       )}
-    </div>
+      </div>
   );
 }

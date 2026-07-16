@@ -14,6 +14,8 @@ export type Food = {
   f: number;         // fat g per serving
 };
 
+const HIDDEN_FOOD_IDS = new Set(['tuna-canned', 'salmon', 'shrimp', 'tilapia']);
+
 export const FOODS: Food[] = [
   // Proteins
   { id: 'chicken-breast', name: 'Chicken Breast, skinless',      cat: 'protein', serving: '100g cooked',       servingG: 100, kcal: 165, p: 31,  c: 0,  f: 3.6 },
@@ -149,14 +151,18 @@ export const FOODS: Food[] = [
   { id: 'fried-rice',     name: 'Chicken Fried Rice (skillet)',  cat: 'meal',    serving: '1 serving',         servingG: 380, kcal: 520, p: 43,  c: 55, f: 13 },
   { id: 'honey-garlic',   name: 'Honey Garlic Chicken',          cat: 'meal',    serving: '1 serving',         servingG: 380, kcal: 540, p: 42,  c: 50, f: 15 },
   { id: 'korean-beef',    name: 'Korean Beef Bowl',              cat: 'meal',    serving: '1 serving',         servingG: 380, kcal: 530, p: 40,  c: 48, f: 18 },
+  { id: 'pork-carnitas',  name: 'Pork Carnitas (4oz cooked)',    cat: 'meal',    serving: '4 oz cooked',       servingG: 113, kcal: 280, p: 25,  c: 1,  f: 20 },
+  { id: 'carnitas-bowl',  name: 'Pork Carnitas Bowl (rice + carnitas + salsa)', cat: 'meal', serving: '1 bowl', servingG: 500, kcal: 620, p: 32, c: 55, f: 28 },
+  { id: 'yogurt-fruit-whey', name: 'Greek Yogurt + Frozen Fruit + Whey Scoop', cat: 'meal', serving: '1 bowl', servingG: 400, kcal: 340, p: 48, c: 30, f: 3 },
   { id: 'plan-d-breakfast', name: 'Plan D Breakfast (3 eggs + oats + banana + honey)', cat: 'meal', serving: '1 breakfast', servingG: 500, kcal: 550, p: 28, c: 85, f: 16 },
   { id: 'plan-d-evening', name: 'Plan D Evening Snack (yogurt + berries + granola)', cat: 'meal', serving: '1 snack', servingG: 300, kcal: 250, p: 22, c: 30, f: 5 },
 ];
 
 export function searchFoods(q: string, limit = 25): Food[] {
   const query = q.trim().toLowerCase();
-  if (!query) return FOODS.slice(0, limit);
-  const scored = FOODS.map(f => {
+  const visible = FOODS.filter(f => !HIDDEN_FOOD_IDS.has(f.id));
+  if (!query) return visible.slice(0, limit);
+  const scored = visible.map(f => {
     const n = f.name.toLowerCase();
     let score = 0;
     if (n === query) score = 1000;

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 
 type ExerciseData = {
   id?: string;
@@ -44,21 +45,24 @@ export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete }
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const raw = localStorage.getItem(logKey);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as LogEntry;
-        setSaved(parsed);
-        setEntry(parsed);
-      } catch { /* ignore */ }
-    } else {
-      setSaved(null);
-    }
+    void pullSfprepSync().finally(() => {
+      const raw = localStorage.getItem(logKey);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as LogEntry;
+          setSaved(parsed);
+          setEntry(parsed);
+        } catch { /* ignore */ }
+      } else {
+        setSaved(null);
+      }
+    });
   }, [logKey]);
 
   const save = () => {
     if (typeof window === 'undefined') return;
     localStorage.setItem(logKey, JSON.stringify(entry));
+    void pushSfprepSync();
     setSaved(entry);
     setShowLog(false);
   };

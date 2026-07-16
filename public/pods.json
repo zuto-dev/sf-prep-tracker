@@ -1,0 +1,385 @@
+[
+  {
+    "date": "2026-07-14",
+    "episode": 10,
+    "title": "Water Confidence: The Event Nobody Trains For Until It's Too Late",
+    "bucket": "B \u00b7 Physical Standards & Prep",
+    "summary": "CWSA doesn't measure swim skill \u2014 it measures whether you can stay functional in water when you're encumbered and mildly panicked. It's the most preventable failure at Mackall, and it takes months of pool time to fix.",
+    "takeaways": [
+      "Water confidence is autonomic regulation under a specific stressor, not swim fitness \u2014 cardio doesn't transfer",
+      "CWSA has three graded tasks: 15m equipment swim, 3m blindfold drop, equipment ditch \u2014 pass all or re-test",
+      "Walton's four-stage progression: face-in-water, bobs, restricted-movement laps, task-under-load",
+      "Biggest predictor of failure is zero deliberate water exposure in the year before ship",
+      "Building the Elite guests agree: comfort in water = exposure hours, not talent",
+      "tfvoodoo \u2014 treat CWSA as psychological, not athletic; showing up having never swum in boots is preventable",
+      "7th Group runs riverine and jungle ops across SOUTHCOM \u2014 water is a working environment, not a checkbox",
+      "Two 30-minute pool sessions per week for 12 months and you show up with the assessment already won"
+    ],
+    "skills": [
+      {
+        "title": "Bobs for CO2 tolerance",
+        "detail": "Sink to shallow-end bottom, exhale slowly, push off, inhale, sink again. Ten in a row. Teaches your nervous system that being underwater is not dying."
+      },
+      {
+        "title": "Clothed swim progression",
+        "detail": "Start in a t-shirt, add sweatpants, then boots (or old running shoes if facility bans boots). Familiarizes the proprioceptive weirdness before it happens with a grader watching."
+      },
+      {
+        "title": "Twice-weekly pool discipline",
+        "detail": "Thirty minutes, two sessions, non-negotiable. Community rec center, YMCA, base pool \u2014 anything 25m or longer. Calendar it now, not later."
+      }
+    ],
+    "homework": "This week, locate a pool you have consistent access to, and put two 30-minute sessions on your calendar for next week.",
+    "source": "Ruck Up or Shut Up (Walton, 2023) \u2014 water confidence chapter; supported by TC 3-22.9 / Combat Water Survival doctrine and Building the Elite drownproofing episodes",
+    "audio": "/audio/sf-podcast-episode-10.mp3"
+  },
+  {
+    "date": "2026-07-13",
+    "episode": 8,
+    "title": "Peer Evals: The Filter Nobody Prepares For",
+    "bucket": "C \u00b7 Mindset & Culture",
+    "summary": "Peer evaluations end more SF careers than any single physical event, and almost nobody trains for them on purpose. Walton, tfvoodoo, and the humility default.",
+    "takeaways": [
+      "Peer evals are on the board's table next to your PT card and land nav score \u2014 guys who pass every event get peered out every class.",
+      "Walton's two failure modes on team week: the guy who disappears, and the guy who won't shut up. Both get peered.",
+      "Structurally invisible during good moments, structurally present during bad ones \u2014 that's the top-scored peer.",
+      "Peer scores are relative, not absolute, and reputation locks in inside the first 48 hours of team week.",
+      "tfvoodoo's three archetypes that get peered every time: too-gray gray man, the talker, and the guy who thinks he's better than his peers.",
+      "Humility default \u2014 treat every peer as if they might make it and you might not.",
+      "Surplus physical capacity is what lets you help the guy next to you; if you're maxed on your own ruck, you can't peer well.",
+      "Rehearse being the second-loudest person in the room \u2014 that's a trainable habit, not a personality trait."
+    ],
+    "skills": [
+      {
+        "title": "Talk-to-listen audit",
+        "detail": "Pick one daily setting and count how often you talk vs. listen. Adjust the ratio. Runs continuously, no equipment needed."
+      },
+      {
+        "title": "Take the heavy end first",
+        "detail": "In any group physical task, volunteer for the harder position while you're fresh, rotate off cleanly. Builds the peer signature Walton names."
+      },
+      {
+        "title": "Second-loudest rehearsal",
+        "detail": "Contribute, execute, then shut up when someone else has the floor. Practice in low-stakes settings so it's automatic at Mackall."
+      }
+    ],
+    "homework": "This week, pick one setting you're in daily and count how many times you talk versus how many times you listen. Adjust the ratio.",
+    "source": "Ruck Up or Shut Up (Walton, 2023) \u2014 team-week chapter; tfvoodoo r/specialforces standup",
+    "audio": "/audio/sf_podcast_episode_8.mp3"
+  },
+  {
+    "date": "2026-07-12",
+    "episode": 7,
+    "title": "Land Nav: The Skill That Decides the Star Course",
+    "bucket": "B \u00b7 Physical Standards & Prep",
+    "summary": "Land nav is the most trainable event at SFAS and the one candidates show up under-prepared for. Twelve months out, you build it in layers \u2014 fundamentals, terrain association, attack points, decision-making under fatigue.",
+    "takeaways": [
+      "Land nav is a physical skill executed under cognitive load \u2014 plotting grids tired, cold, and wet is a different task than doing it at a picnic table.",
+      "TC 3-25.26 (chapters 3, 5, 9, 11) is the doctrinal source of truth \u2014 put a PDF on your phone this week.",
+      "Walton's four layers in Ruck Up or Shut Up: fundamentals cold, terrain association, attack points and catch features, decisions under fatigue.",
+      "Know five pace counts, not one \u2014 flat/up/down, day/night, loaded/unloaded, fresh/after 10 miles.",
+      "Terrain associators with dead reckoning as backup finish the Star Course. Not the other way around.",
+      "tfvoodoo's rule: buy a Cammenga tritium lensatic, use paper maps, and get lost on purpose.",
+      "Terrain avoidance is planning, not weakness \u2014 selection is a distance event, not a strength event.",
+      "Water confidence and swimming are non-negotiable and non-crammable \u2014 start now if you're not strong in a pool."
+    ],
+    "skills": [
+      {
+        "title": "Pace count in five conditions",
+        "detail": "Measure your 100m pace on flat ground, uphill, downhill, at night, and after a 10-mile ruck. Log all five and re-verify quarterly."
+      },
+      {
+        "title": "Attack points and catch features",
+        "detail": "Never nav directly to an objective. Nav to a definite terrain feature nearby, then shoot a short precise azimuth to the box. Identify a catch feature past it to tell you when you've overshot."
+      },
+      {
+        "title": "Get lost on purpose",
+        "detail": "Once a month, deliberately drop your compass in your pocket and re-orient from terrain alone. That re-orientation is what selection is actually testing."
+      }
+    ],
+    "homework": "Buy the compass this week. Cammenga 3H tritium, protractor, and a 1:50,000 map of local terrain. Not next month. This week.",
+    "source": "TC 3-25.26 (Map Reading and Land Navigation) + Ruck Up or Shut Up ch. on Land Navigation (Walton)",
+    "audio": "/audio/sf_podcast_episode_7.mp3"
+  },
+  {
+    "date": "2026-07-11",
+    "episode": 6,
+    "title": "Son Tay: The Raid That Rewrote Special Operations",
+    "bucket": "D \u00b7 Regiment History & Doctrine",
+    "summary": "November 21, 1970 \u2014 56 Green Berets hit a POW camp 23 miles from Hanoi and freed zero prisoners. Why the raid is still the DNA of every modern SOF hostage rescue.",
+    "takeaways": [
+      "Ivory Coast / Kingpin, launched night of 20-21 Nov 1970 \u2014 27 minutes on the ground, zero U.S. KIA",
+      "Planning cell run by BG Donald Blackburn; ground force by Col Bull Simons; assault led by Capt Dick Meadows",
+      "170+ full-scale rehearsals against the 'Barbara' mockup at Eglin AFB \u2014 home of 7th SFG today",
+      "Simons' element accidentally hit a nearby barracks (likely foreign advisors) \u2014 killed 100-200, then extracted to the real objective",
+      "Prisoners had been moved in July 1970 due to flooding; intel missed it",
+      "Consequence: NVA consolidated all POWs into Hanoi, ending most solitary/torture \u2014 the 'failed' raid materially improved POW conditions",
+      "Direct ancestor of Delta, JSOC (1980), and every DA hostage-rescue op through Abbottabad 2011",
+      "Volunteers were told nothing about the mission and stepped up anyway \u2014 the Simons filter"
+    ],
+    "skills": [
+      {
+        "title": "Rehearse to unconscious",
+        "detail": "Whatever you're training \u2014 ruck cadence, pace count, weapons drills \u2014 run the boring rep until it's automatic. Simons ran 170 iterations because muscle memory survives contact."
+      },
+      {
+        "title": "Learn the names",
+        "detail": "Blackburn, Simons, Meadows, Doc Kirby. Read Benjamin Schemmer's 'The Raid' (1976) before you ship. If a team sergeant asks why Meadows matters, you should have an answer."
+      },
+      {
+        "title": "Volunteer without conditions",
+        "detail": "500 men volunteered without being told the mission. When SFAS cadre give ambiguous tasks, execute without renegotiating \u2014 that's the filter."
+      }
+    ],
+    "homework": "Pull up the Son Tay Raid entry tonight. Note the date \u2014 21 November 1970. Put Blackburn, Simons, and Meadows in your notebook.",
+    "source": "Son Tay Raid (Operation Ivory Coast/Kingpin), 20-21 Nov 1970; Schemmer, 'The Raid' (1976)"
+  },
+  {
+    "date": "2026-07-10",
+    "episode": 5,
+    "title": "The Special Forces Groups: Where You Actually End Up",
+    "bucket": "A \u00b7 Path & Pipeline",
+    "summary": "SF isn't monolithic. Same tab, same beret \u2014 but the Group you're assigned to decides your region, language, partner forces, and mission tempo. Here's how the seven Groups map to the world.",
+    "takeaways": [
+      "5 active + 2 National Guard Groups; each aligned to a geographic combatant command",
+      "1st SFG \u2014 Indo-Pacific (JBLM + Okinawa); Korean, Thai, Tagalog, Mandarin",
+      "3rd SFG \u2014 AFRICOM (Fort Liberty); French + Arabic; Sahel and Horn CT fight",
+      "5th SFG \u2014 CENTCOM (Fort Campbell); Arabic/Dari; Horse Soldiers heritage",
+      "7th SFG \u2014 SOUTHCOM (Eglin AFB); Spanish/Portuguese; deepest partner-force ties",
+      "10th SFG \u2014 EUCOM (Fort Carson + Stuttgart); oldest Group, activated 1952",
+      "19th (UT) & 20th (AL) \u2014 National Guard, same standard, same tab",
+      "You don't pick \u2014 but a high DLAB score buys you options"
+    ],
+    "skills": [
+      {
+        "title": "Map the Groups",
+        "detail": "Pin a world map with the 7 Groups and their AORs. When someone asks 'why that Group,' you have a real answer, not a vibe."
+      },
+      {
+        "title": "DLAB prep",
+        "detail": "Start basic linguistic pattern recognition now. High DLAB = harder languages = Group choice leverage at the end of the Q-Course."
+      },
+      {
+        "title": "Read one book per Group",
+        "detail": "Horse Soldiers (5th), Lions of Kandahar (3rd), Kill Bin Laden context. Build cultural literacy so cadre convos land."
+      },
+      {
+        "title": "Language sample",
+        "detail": "Pick two candidate languages tied to Groups you'd want (e.g., Arabic for 5th, Russian for 10th). 15 min/day on Duolingo or Pimsleur \u2014 signal, not fluency."
+      },
+      {
+        "title": "Regional current events",
+        "detail": "Read one long-form piece per week on the AOR you'd want. War on the Rocks, CTC Sentinel, Small Wars Journal. Free."
+      },
+      {
+        "title": "Talk to a Group vet",
+        "detail": "SOWT and the r/specialforces AMAs. Ask about the day-to-day of the Group you're eyeing \u2014 not the door-kicking, the FID rotations."
+      },
+      {
+        "title": "Kill the favoritism",
+        "detail": "Rehearse the mental frame 'I go where they send me and I get to work.' Rigid preference gets punished in the assignment cycle."
+      },
+      {
+        "title": "Log a Group-of-the-week note",
+        "detail": "One paragraph in your prep journal each week on a different Group \u2014 mission, history, current fight. Seven weeks = full coverage."
+      }
+    ],
+    "homework": "Study the map. When cadre asks which Group and why, 'I like the mountains' is not an answer. Have a reason."
+  },
+  {
+    "date": "2026-07-09",
+    "episode": 4,
+    "title": "Selection Is a Mental Event with a Physical Component",
+    "bucket": "C \u00b7 Mindset & Culture",
+    "summary": "The physical standards at Mackall are gettable. What separates the guys who finish from the guys who don't isn't conditioning \u2014 it's how they handle uncertainty, deprivation, and ambiguity when nobody is watching or scoring.",
+    "takeaways": [
+      "Physical standards (15:00 2-mi, 12-min mile ruck at 50 lb, 60/60 PT, 8\u201312 pull-ups) are the entry ticket \u2014 not the differentiator.",
+      "Motivation dies around day 4. You need something duller and more durable.",
+      "Cadre engineer uncertainty, deprivation, and ambiguity \u2014 your own head fills in 'you're failing' before they do.",
+      "Disconnect effort from feedback: full effort into a vacuum, every event.",
+      "Shrink the timeline \u2014 next meal, next halt, next 100m. Small horizons are always survivable.",
+      "Make quitting a two-step process. Never act on the VW thought; push the decision to the next event.",
+      "Ego death is a requirement. Guys who blow up came in with a self-image they had to protect.",
+      "The body gets you to selection. The head gets you through it."
+    ],
+    "skills": [
+      {
+        "title": "Solo unwitnessed ruck",
+        "detail": "Once this week, do a 45\u201360 min ruck alone with no music, no watch check-ins, no social media post. Effort into a vacuum."
+      },
+      {
+        "title": "Shrink-the-horizon drill",
+        "detail": "On your next hard session, ban thinking past the next 5 minutes. When the mind drifts to 'how much left,' pull it back to the current rep or the current 100m."
+      },
+      {
+        "title": "VW-tabling rehearsal",
+        "detail": "When 'I could stop right now' shows up mid-workout, practice the response: 'I can stop at the next mile marker.' Move it. Never act on it in the moment."
+      },
+      {
+        "title": "Ambiguity reps",
+        "detail": "One session this week: don't check pace, distance, or time until finished. Just run/ruck by feel until a pre-set endpoint. Get comfortable not knowing."
+      },
+      {
+        "title": "Bad-weather deposit",
+        "detail": "If it rains or drops cold this week, that's the session you do NOT skip. This is the account you withdraw from at Mackall."
+      },
+      {
+        "title": "Ego-check ruck",
+        "detail": "On your next group anything (even a run with a friend), practice being the guy at the back without commentary or excuse. Sit in it."
+      },
+      {
+        "title": "Journal one 'kept promise' per day",
+        "detail": "End of each day, write the one thing you did today that you didn't feel like doing. That list is your durability, on paper."
+      },
+      {
+        "title": "Cold-start habit",
+        "detail": "Pick one recurring moment \u2014 first pull-up set, first step of the morning run \u2014 where you go from zero to full effort with no ramp. Selection doesn't warm you up."
+      }
+    ],
+    "homework": "The body gets you to selection. The head gets you through it. Train them both, but never confuse which one is the bottleneck."
+  },
+  {
+    "date": "2026-07-08",
+    "episode": 6,
+    "title": "Rucking: How Not to Blow Out Your Feet and Back",
+    "bucket": "B \u00b7 Physical Prep",
+    "summary": "Rucking ends more prep careers than Mackall does. It's not running-with-weight \u2014 it's its own gait. Foot strike, pack fit, feet care, load ramp, terrain, volume, recovery.",
+    "takeaways": [
+      "It's a gait, not a run. Fast deliberate walk \u2014 bouncing or jogging under load is wrong.",
+      "Standard: 12 min/mi @ 45\u201355 lb on rolling terrain, miles at a time. Get there by walking fast, not running slow.",
+      "Cadence 120\u2013130/min. Short quick steps, midfoot-to-heel, roll through, push off. Long strides shred knees.",
+      "Pack HIGH and TIGHT. Hip belt on iliac crest FIRST, then shoulders, then load lifters. Sagging ruck = a week of lumbar pain per 10 mi.",
+      "Feet: liner sock under wool, broken-in boots that fit YOU. Toenails short + straight. Hot spot = STOP and tape NOW.",
+      "Start at 35 lb. +5 lb every 2\u20133 weeks. No ankle weights, no stacked vests \u2014 train the specific load geometry.",
+      "Trails > roads. Selection isn't pavement. Flat area? Stairs or parking-garage repeats.",
+      "Never add mileage AND weight the same week. Ramp \u2264 10%/wk. Deload every 4th\u20135th week. Bones remodel during rest."
+    ],
+    "skills": [
+      {
+        "title": "Pack fit dry-run",
+        "detail": "Load 20 lb. Cinch hip belt on iliac crest, shoulders, load lifters. Walk 10 min. Adjust. Reload. Muscle-memorize the sequence."
+      },
+      {
+        "title": "Cadence walk",
+        "detail": "Metronome app @ 125 BPM. 20 min walk stepping every beat. The ruck stride without the load."
+      },
+      {
+        "title": "Boot break-in",
+        "detail": "Wear boots + wool socks + liners on 3 easy walks this week. Identify hot spots BEFORE they're under load."
+      },
+      {
+        "title": "Foot care ritual",
+        "detail": "Trim nails short + straight tonight. Buy leukotape + moleskin. Practice taping a heel before you need to."
+      },
+      {
+        "title": "Terrain scouting",
+        "detail": "Find one trail loop within 20 min of home. Note the mileage. This is your future ruck route."
+      },
+      {
+        "title": "Stairs repeats",
+        "detail": "Parking garage or stadium. 10 min up-and-down at cadence. Builds calves + quads for the eventual load."
+      },
+      {
+        "title": "Post-walk recovery flow",
+        "detail": "Feet elevated 15 min. Roll calves + hip flexors. Protein + carbs within 60 min. Rehearse it now."
+      },
+      {
+        "title": "Ruck-gate PT",
+        "detail": "Every Saturday 2-mile time trial toward sub-16:00. That's what unlocks the actual load work."
+      }
+    ],
+    "homework": "This week \u2014 ONE ruck. 45 lb, 6 mi, trail if possible. Focus on foot strike + pack fit. Zero blisters.",
+    "audio": "/audio/sf_podcast_episode_6_land_nav.mp3"
+  },
+  {
+    "date": "2026-07-07",
+    "episode": 5,
+    "title": "The ODA: Why It's Twelve Men",
+    "bucket": "D \u00b7 Regiment & Doctrine",
+    "summary": "The A-team's 12-man structure isn't arbitrary. Understand the ODA and you understand what SF actually does \u2014 the whole pipeline is built to produce one of these 12 slots.",
+    "takeaways": [
+      "SF's core mission is unconventional warfare \u2014 small footprint, indigenous force, force multiplier. NOT primarily direct action.",
+      "12 men: 2 officers (18A captain + 180A warrant/continuity) + 10 NCOs.",
+      "Two of every specialty so the team can split into two 6-man elements: 18B weapons, 18C engineer, 18D medic (hardest MOS, ~1yr training), 18E comms.",
+      "One 18F intel + one 18Z team sergeant. The captain COMMANDS. The 18Z RUNS the team.",
+      "Twelve = small enough to move quiet, large enough for redundancy in every skill, large enough to split, large enough to spread the interpersonal load.",
+      "Structure evolved from OSS Jedburgh 3-man teams in WWII, which proved too small.",
+      "Every SFAS/Q-Course event is filtering for a guy who FITS into that 12 \u2014 not a lone wolf.",
+      "Pick your MOS with intent. Don't chase 18D for prestige; don't dodge it for length. Pick what you want to do for 15 years."
+    ],
+    "skills": [
+      {
+        "title": "Read one 18-series MOS deep",
+        "detail": "Pick 18B/C/D/E/F this week. Read the training pipeline, day-in-the-life downrange, career progression."
+      },
+      {
+        "title": "Watch an ODA doc",
+        "detail": "Find a legit interview or doc (Team House podcast, SOF interviews). Note how team dynamics come up more than kit."
+      },
+      {
+        "title": "Draft your MOS ranking",
+        "detail": "List 18B/C/D/E in order of interest with a one-sentence reason. Revisit monthly \u2014 your answer should sharpen."
+      },
+      {
+        "title": "Learn the ODA org chart",
+        "detail": "Sketch it from memory: 18A, 180A, 18Z, and 2x each of B/C/D/E + 1x F. Quiz yourself Friday."
+      },
+      {
+        "title": "Study Jedburgh history",
+        "detail": "One evening read on OSS Jedburgh teams \u2014 the DNA of the ODA. Understand why 3 was too small."
+      },
+      {
+        "title": "Practice \"quiet professional\" reps",
+        "detail": "One situation this week where you'd normally speak up to be seen \u2014 don't. Just do the work. Peer evals start now."
+      }
+    ],
+    "homework": "This week, read up on ONE 18-series MOS in depth. Just one. Know what a day in that job looks like downrange."
+  },
+  {
+    "date": "2026-07-06",
+    "episode": 4,
+    "title": "SFAS: What Actually Gets People Cut",
+    "bucket": "A \u00b7 Path & Pipeline",
+    "summary": "3 weeks at Camp Mackall. Cadre don't teach \u2014 they watch. Every event is a data point and you never see the scoreboard. Here's what actually cuts guys.",
+    "takeaways": [
+      "3 phases: (1) individual assessment \u2014 PT, swim, obstacle, runs, ruck, land nav. (2) team week \u2014 ad-hoc teams, log/Zodiac/water can problems, never enough time. (3) Star Course / Long Walk \u2014 solo multi-day land nav with a ruck.",
+      "#1 reason guys don't select: VOLUNTARY WITHDRAWAL. More quit than get medical or peered. Most are physically capable. Ambiguity in the dark hours is the weapon.",
+      "#2: LAND NAV. Star Course especially. Can't shoot azimuth, pace-count broken terrain at night, re-attack a missed point \u2192 go home. Most trainable skill people show up under-prepared for.",
+      "#3: PEER EVALS. Teammates rank each other; cadre read it. Don't carry your share of the log = peered out. You can pass every physical event and still not select.",
+      "#4: INJURIES. Some bad luck; most are accumulated damage from ramping too fast in the 6 months before shipping.",
+      "Selection isn't won at Mackall. It's won in the 18-24 months before, in boring reps nobody sees.",
+      "Take VW off the table BEFORE you get on the bus. You can be injured out. You can be peered out. You cannot quit."
+    ],
+    "skills": [
+      {
+        "title": "Buy land nav kit",
+        "detail": "Lensatic compass, protractor, 1:50k topo maps of a local park. This is the highest-ROI purchase before ship."
+      },
+      {
+        "title": "Pace count calibration",
+        "detail": "Measure 100m on flat ground, count your paces. Now do it uphill, downhill, in tall grass. Log each."
+      },
+      {
+        "title": "Azimuth practice",
+        "detail": "Pick a distant landmark. Shoot the bearing with compass. Walk to it in a straight line. Repeat 5x."
+      },
+      {
+        "title": "Night nav rep",
+        "detail": "One evening this week \u2014 walk a known 1-mile loop with headlamp OFF except at checkpoints. Get comfortable with the dark."
+      },
+      {
+        "title": "Log carry drill",
+        "detail": "Solo prep: farmer-carry a heavy sandbag/log 100m, rest 30s, repeat 10x. Fatigue teaches you what \"carrying your share\" feels like."
+      },
+      {
+        "title": "VW pre-commitment",
+        "detail": "Write on an index card: \"I will not voluntarily withdraw.\" Keep it in your wallet. Read it on hard days."
+      },
+      {
+        "title": "Injury-prevention audit",
+        "detail": "This week \u2014 one deload run (30 min easy), foam roll 2x, sleep 8hr min 5 nights. Habits > heroics."
+      }
+    ],
+    "homework": "This week \u2014 one ruck with a REAL map and compass, no phone GPS. Find three points on foot. If that sounds easy, do it at night."
+  }
+]
