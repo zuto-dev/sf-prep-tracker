@@ -10,7 +10,7 @@ const KEY = 'sfprep:meals';
 
 export type UserMeal = Food & {
   cat: 'meal';
-  source?: 'manual' | 'coach' | 'recipe-image';
+  source?: 'manual' | 'coach' | 'recipe-image' | 'scan';
   createdAt?: string;
 };
 

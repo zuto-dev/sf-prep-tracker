@@ -465,9 +465,99 @@ function Bar({ label, val, target, unit }: { label: string; val: number; target:
 export default function NutritionPage() {
   const [store, setStore] = useState<NutritionStore>(defaultStore);
   const [date, setDate] = useState(iso(new Date()));
-  const [view, setView] = useState<'today' | 'week' | 'meals' | 'tools'>('today');
+  const [view, setView] = useState<'today' | 'scan' | 'week' | 'meals' | 'tools'>('today');
   const [nextMealSlot, setNextMealSlot] = useState<Meal>('lunch');
   const [activeMealSlot, setActiveMealSlot] = useState<Meal>('lunch');
+
+  // AI Plate Scanner states
+  const [scanPreview, setScanPreview] = useState<string | null>(null);
+  const [scanResult, setScanResult] = useState<any | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+
+  const handleScanFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setScanPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const runScanAnalysis = async () => {
+    if (!scanPreview) return;
+    setIsScanning(true);
+    setScanResult(null);
+    try {
+      const res = await fetch('/api/photo-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: scanPreview })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setScanResult(data);
+      } else {
+        console.error('Scan failed');
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const logScannedMeal = () => {
+    if (!scanResult) return;
+    const foodId = `meal:scan-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const newMeal: UserMeal = {
+      id: foodId,
+      cat: 'meal',
+      name: scanResult.meal.name,
+      serving: scanResult.meal.serving,
+      servingG: 0,
+      kcal: scanResult.meal.kcal,
+      p: scanResult.meal.p,
+      c: scanResult.meal.c,
+      f: scanResult.meal.f,
+      source: 'scan'
+    };
+    
+    // Save to user meals library
+    const storedMeals = (() => {
+      try {
+        const raw = localStorage.getItem('sfprep:meals');
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    })();
+    localStorage.setItem('sfprep:meals', JSON.stringify([...storedMeals, newMeal]));
+    window.dispatchEvent(new Event('sfprep-meals-changed'));
+    
+    // Log to daily log
+    set({ ...day, [nextMealSlot]: [...day[nextMealSlot], { foodId, servings: 1 }] });
+    
+    // Reset scanner
+    setScanPreview(null);
+    setScanResult(null);
+    setView('today');
+  };
+
+  const saveScannedMealToLibrary = () => {
+    if (!scanResult) return;
+    addMeal({
+      name: scanResult.meal.name,
+      serving: scanResult.meal.serving,
+      servingG: 0,
+      kcal: scanResult.meal.kcal,
+      p: scanResult.meal.p,
+      c: scanResult.meal.c,
+      f: scanResult.meal.f,
+      source: 'scan'
+    });
+    alert('Meal saved to recipes library!');
+  };
   useEffect(() => {
     void pullSfprepSync().finally(() => setStore(load()));
   }, []);
@@ -749,7 +839,7 @@ export default function NutritionPage() {
 
       {/* Sub-Navigation Tabs */}
       <div className="flex flex-wrap items-center gap-2">
-        {(['today', 'week', 'meals', 'tools'] as const).map(k => (
+        {(['today', 'scan', 'week', 'meals', 'tools'] as const).map(k => (
           <button
             key={k}
             onClick={() => setView(k)}
@@ -759,7 +849,7 @@ export default function NutritionPage() {
                 : 'bg-gray-900/40 border-gray-800/50 text-gray-400 hover:text-white hover:bg-gray-900'
             }`}
           >
-            {k === 'today' ? 'Today' : k === 'week' ? 'Week Summary' : k === 'meals' ? `Meals (${meals.length})` : 'Tools'}
+            {k === 'today' ? 'Today' : k === 'scan' ? 'Plate Scanner' : k === 'week' ? 'Week Summary' : k === 'meals' ? `Meals (${meals.length})` : 'Tools'}
           </button>
         ))}
         <input
@@ -770,7 +860,165 @@ export default function NutritionPage() {
         />
       </div>
 
-      {view === 'today' ? (
+      {view === 'scan' ? (
+        <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-6 space-y-6 shadow-2xl relative overflow-hidden">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-850 pb-4">
+            <div>
+              <h2 className="text-xl font-bold font-display text-white">AI Plate Scanner</h2>
+              <p className="text-gray-400 text-sm mt-1">Upload a photo of your meal to auto-detect portion sizes, ingredients, and estimated macros.</p>
+            </div>
+            <select
+              value={nextMealSlot}
+              onChange={e => setNextMealSlot(e.target.value as Meal)}
+              className="rounded-xl bg-gray-950 border border-gray-850 px-3 py-2 text-xs font-mono text-white focus:outline-none"
+            >
+              {(['breakfast','lunch','dinner','snacks'] as Meal[]).map(slot => (
+                <option key={slot} value={slot}>Target: {slot}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* Left Column: Image Selection & Preview */}
+            <div className="space-y-4">
+              <div className="bg-gray-950/40 border border-dashed border-gray-800 rounded-2xl p-6 flex flex-col items-center justify-center min-h-[300px] relative overflow-hidden group">
+                {scanPreview ? (
+                  <>
+                    <img src={scanPreview} alt="Plate preview" className="max-w-full max-h-[280px] object-contain rounded-xl" />
+                    {isScanning && (
+                      <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center backdrop-blur-sm">
+                        {/* Laser beam animation */}
+                        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_rgba(52,211,153,0.8)] animate-[scan_2s_ease-in-out_infinite]" />
+                        <svg className="animate-spin h-10 w-10 text-emerald-400 mb-3" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        <p className="text-xs font-mono text-emerald-400 tracking-widest uppercase animate-pulse">ANALYZING PORTIONS...</p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center space-y-4">
+                    <div className="w-16 h-16 rounded-full bg-gray-900 border border-gray-800 flex items-center justify-center mx-auto text-gray-500 group-hover:text-emerald-400 group-hover:border-emerald-500/20 transition-all">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-300">No Image Uploaded</p>
+                      <p className="text-xs text-gray-500 mt-1">Select a photo of your plate from your device</p>
+                    </div>
+                    <label className="inline-block px-4 py-2 bg-gray-800 hover:bg-gray-750 border border-gray-700 text-white rounded-xl text-xs font-mono font-bold cursor-pointer transition">
+                      Choose Photo
+                      <input type="file" accept="image/*" className="hidden" onChange={handleScanFileSelect} />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {scanPreview && !isScanning && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={runScanAnalysis}
+                    className="flex-1 py-3 bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white rounded-xl font-mono font-bold text-xs shadow-lg transition active:scale-[0.98]"
+                  >
+                    Analyze Plate Macros
+                  </button>
+                  <button
+                    onClick={() => { setScanPreview(null); setScanResult(null); }}
+                    className="px-4 py-3 bg-gray-850 hover:bg-gray-800 border border-gray-750 text-gray-400 hover:text-white rounded-xl font-mono text-xs transition"
+                  >
+                    Reset
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Right Column: Scan Results & Action */}
+            <div className="space-y-4">
+              {scanResult ? (
+                <div className="space-y-4 animate-fade-in">
+                  {/* Results Panel */}
+                  <div className="bg-gray-955 border border-gray-850 rounded-2xl p-5 space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                          Confidence: {Math.round(scanResult.confidence * 100)}%
+                        </span>
+                        <h3 className="text-lg font-bold text-white mt-1.5">{scanResult.detected}</h3>
+                      </div>
+                      <span className="text-xs text-gray-500 font-mono">Portion: {scanResult.meal.serving}</span>
+                    </div>
+
+                    {/* Macro Bento Grid */}
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                      <div className="bg-gray-900 border border-gray-855 rounded-xl p-3">
+                        <div className="text-[9px] text-gray-400 font-mono uppercase">Calories</div>
+                        <div className="text-base font-bold text-white font-mono mt-1">{scanResult.meal.kcal}</div>
+                      </div>
+                      <div className="bg-gray-900 border border-gray-855 rounded-xl p-3">
+                        <div className="text-[9px] text-gray-400 font-mono uppercase">Protein</div>
+                        <div className="text-base font-bold text-green-400 font-mono mt-1">{scanResult.meal.p}g</div>
+                      </div>
+                      <div className="bg-gray-900 border border-gray-855 rounded-xl p-3">
+                        <div className="text-[9px] text-gray-400 font-mono uppercase">Carbs</div>
+                        <div className="text-base font-bold text-blue-400 font-mono mt-1">{scanResult.meal.c}g</div>
+                      </div>
+                      <div className="bg-gray-900 border border-gray-855 rounded-xl p-3">
+                        <div className="text-[9px] text-gray-400 font-mono uppercase">Fat</div>
+                        <div className="text-base font-bold text-orange-400 font-mono mt-1">{scanResult.meal.f}g</div>
+                      </div>
+                    </div>
+
+                    {/* Ingredients List */}
+                    <div>
+                      <span className="text-[10px] font-mono text-gray-500 block uppercase tracking-wider mb-2">Detected Ingredients</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {scanResult.meal.ingredients?.map((ing: string, idx: number) => (
+                          <span key={idx} className="text-[10px] px-2 py-1 rounded bg-gray-900 border border-gray-805 text-gray-300">
+                            {ing}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Notes */}
+                    <p className="text-xs text-gray-400 italic bg-gray-900/40 p-3 rounded-xl border border-gray-850">
+                      💡 {scanResult.notes}
+                    </p>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={logScannedMeal}
+                      className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-mono font-bold text-xs shadow-lg transition active:scale-[0.98]"
+                    >
+                      Log to {nextMealSlot} Daily
+                    </button>
+                    <button
+                      onClick={saveScannedMealToLibrary}
+                      className="px-4 py-3 bg-gray-850 hover:bg-gray-800 border border-gray-750 text-white rounded-xl font-mono text-xs transition"
+                    >
+                      Save Recipe
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-gray-950/20 border border-gray-850 rounded-2xl p-6 text-center text-gray-500 text-sm h-full flex flex-col justify-center min-h-[300px]">
+                  <div>
+                    <span className="text-2xl block mb-2">📊</span>
+                    <p className="font-semibold text-gray-400">Analysis Results</p>
+                    <p className="text-xs text-gray-600 mt-1">Plate details, confidence rating, ingredients, and estimated nutritional value will appear here after analysis.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <style dangerouslySetInnerHTML={{ __html: '@keyframes scan { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(280px); } }' }} />
+        </div>
+      ) : view === 'today' ? (
         <div className="space-y-6">
           <section className="mb-5 rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/50 via-gray-900 to-gray-900 p-5 shadow-xl">
             <div className="flex flex-wrap items-start justify-between gap-4">
