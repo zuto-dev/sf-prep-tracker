@@ -42,6 +42,5 @@ next-env.d.ts
 .data/
 /data/
 /_deliverables/
-/public/audio/
 /get_discord_threads.py
 /search_all_dbs.py

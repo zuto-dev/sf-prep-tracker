@@ -127,7 +127,7 @@ export default function PodsPage() {
             SF Pod Debriefs
           </h2>
           <p className="text-gray-400 text-sm mt-1">
-            Daily podcast episodes · key takeaways · skills to practice.
+            Daily narrated debriefs · key takeaways · skills to practice.
           </p>
         </div>
         <div className="text-left sm:text-right shrink-0">
@@ -169,7 +169,7 @@ export default function PodsPage() {
                   className="relative group overflow-hidden bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 px-4 py-2 rounded-full text-xs font-bold text-white shadow-lg transition-all duration-300 hover:scale-105"
                 >
                   <span className="relative z-10 flex items-center gap-1.5">
-                    🎧 Open Player + Explorer →
+                    🎧 Open Narrated Debrief →
                   </span>
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12 animate-shine pointer-events-none" />
                 </button>

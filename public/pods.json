@@ -31,7 +31,8 @@
     ],
     "homework": "This week, locate a pool you have consistent access to, and put two 30-minute sessions on your calendar for next week.",
     "source": "Ruck Up or Shut Up (Walton, 2023) \u2014 water confidence chapter; supported by TC 3-22.9 / Combat Water Survival doctrine and Building the Elite drownproofing episodes",
-    "audio": "/audio/sf-podcast-episode-10.mp3"
+    "audio": "/audio/sf-pod-2026-07-14.m4a",
+    "audio_label": "Narrated debrief"
   },
   {
     "date": "2026-07-13",
@@ -65,7 +66,8 @@
     ],
     "homework": "This week, pick one setting you're in daily and count how many times you talk versus how many times you listen. Adjust the ratio.",
     "source": "Ruck Up or Shut Up (Walton, 2023) \u2014 team-week chapter; tfvoodoo r/specialforces standup",
-    "audio": "/audio/sf_podcast_episode_8.mp3"
+    "audio": "/audio/sf-pod-2026-07-13.m4a",
+    "audio_label": "Narrated debrief"
   },
   {
     "date": "2026-07-12",
@@ -99,7 +101,8 @@
     ],
     "homework": "Buy the compass this week. Cammenga 3H tritium, protractor, and a 1:50,000 map of local terrain. Not next month. This week.",
     "source": "TC 3-25.26 (Map Reading and Land Navigation) + Ruck Up or Shut Up ch. on Land Navigation (Walton)",
-    "audio": "/audio/sf_podcast_episode_7.mp3"
+    "audio": "/audio/sf-pod-2026-07-12.m4a",
+    "audio_label": "Narrated debrief"
   },
   {
     "date": "2026-07-11",
@@ -132,7 +135,9 @@
       }
     ],
     "homework": "Pull up the Son Tay Raid entry tonight. Note the date \u2014 21 November 1970. Put Blackburn, Simons, and Meadows in your notebook.",
-    "source": "Son Tay Raid (Operation Ivory Coast/Kingpin), 20-21 Nov 1970; Schemmer, 'The Raid' (1976)"
+    "source": "Son Tay Raid (Operation Ivory Coast/Kingpin), 20-21 Nov 1970; Schemmer, 'The Raid' (1976)",
+    "audio": "/audio/sf-pod-2026-07-11.m4a",
+    "audio_label": "Narrated debrief"
   },
   {
     "date": "2026-07-10",
@@ -184,7 +189,9 @@
         "detail": "One paragraph in your prep journal each week on a different Group \u2014 mission, history, current fight. Seven weeks = full coverage."
       }
     ],
-    "homework": "Study the map. When cadre asks which Group and why, 'I like the mountains' is not an answer. Have a reason."
+    "homework": "Study the map. When cadre asks which Group and why, 'I like the mountains' is not an answer. Have a reason.",
+    "audio": "/audio/sf-pod-2026-07-10.m4a",
+    "audio_label": "Narrated debrief"
   },
   {
     "date": "2026-07-09",
@@ -236,7 +243,9 @@
         "detail": "Pick one recurring moment \u2014 first pull-up set, first step of the morning run \u2014 where you go from zero to full effort with no ramp. Selection doesn't warm you up."
       }
     ],
-    "homework": "The body gets you to selection. The head gets you through it. Train them both, but never confuse which one is the bottleneck."
+    "homework": "The body gets you to selection. The head gets you through it. Train them both, but never confuse which one is the bottleneck.",
+    "audio": "/audio/sf-pod-2026-07-09.m4a",
+    "audio_label": "Narrated debrief"
   },
   {
     "date": "2026-07-08",
@@ -289,7 +298,8 @@
       }
     ],
     "homework": "This week \u2014 ONE ruck. 45 lb, 6 mi, trail if possible. Focus on foot strike + pack fit. Zero blisters.",
-    "audio": "/audio/sf_podcast_episode_6_land_nav.mp3"
+    "audio": "/audio/sf-pod-2026-07-08.m4a",
+    "audio_label": "Narrated debrief"
   },
   {
     "date": "2026-07-07",
@@ -333,7 +343,9 @@
         "detail": "One situation this week where you'd normally speak up to be seen \u2014 don't. Just do the work. Peer evals start now."
       }
     ],
-    "homework": "This week, read up on ONE 18-series MOS in depth. Just one. Know what a day in that job looks like downrange."
+    "homework": "This week, read up on ONE 18-series MOS in depth. Just one. Know what a day in that job looks like downrange.",
+    "audio": "/audio/sf-pod-2026-07-07.m4a",
+    "audio_label": "Narrated debrief"
   },
   {
     "date": "2026-07-06",
@@ -380,6 +392,8 @@
         "detail": "This week \u2014 one deload run (30 min easy), foam roll 2x, sleep 8hr min 5 nights. Habits > heroics."
       }
     ],
-    "homework": "This week \u2014 one ruck with a REAL map and compass, no phone GPS. Find three points on foot. If that sounds easy, do it at night."
+    "homework": "This week \u2014 one ruck with a REAL map and compass, no phone GPS. Find three points on foot. If that sounds easy, do it at night.",
+    "audio": "/audio/sf-pod-2026-07-06.m4a",
+    "audio_label": "Narrated debrief"
   }
 ]
