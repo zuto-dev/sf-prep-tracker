@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Nav } from '../components/Nav';
+import { motion, AnimatePresence } from 'motion/react';
 import { FOODS, searchFoods, type Food } from '../data/foods';
 import { SupsLog } from '../components/SupsLog';
 import { useMeals, addMeal, removeMeal, searchMeals, type UserMeal } from '../data/meals';
@@ -407,35 +408,35 @@ function MealBlock({ meal, entries, onAdd, onRemove, onChangeServing, extraFoods
     });
   };
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
-      <div className="flex justify-between items-baseline mb-2">
-        <h3 className="font-semibold capitalize">{meal}</h3>
+    <div className="bg-gray-950/40 border border-gray-850 rounded-2xl p-5 space-y-4">
+      <div className="flex justify-between items-center mb-2">
+        <h3 className="text-sm font-bold text-white font-mono uppercase tracking-wider">{meal}</h3>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">{fmt(t.kcal)} kcal · {fmt(t.p)}g P · {fmt(t.c)}g C · {fmt(t.f)}g F</span>
+          <span className="text-xs text-gray-400 font-mono">{fmt(t.kcal)} kcal · {fmt(t.p)}g P · {fmt(t.c)}g C · {fmt(t.f)}g F</span>
           {entries.length >= 2 && (
             <button onClick={saveAsMeal} title="Save this combo as a reusable meal"
-              className="text-[10px] text-emerald-400 hover:text-emerald-300 border border-emerald-800 rounded px-1.5 py-0.5">
-              + Save
+              className="text-[10px] text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 bg-emerald-500/5 rounded px-2 py-0.5 transition">
+              + Save Combo
             </button>
           )}
         </div>
       </div>
       <FoodSearch onPick={onAdd} extraFoods={extraFoods} />
       {entries.length > 0 && (
-        <ul className="mt-3 space-y-1">
+        <ul className="mt-3 space-y-2">
           {entries.map((e, i) => {
             const f = foodById.get(e.foodId);
             if (!f) return null;
             return (
-              <li key={i} className="flex items-center gap-2 text-sm bg-gray-900 rounded px-2 py-1">
-                <span className="flex-1">{f.name} <span className="text-xs text-gray-500">({f.serving})</span></span>
+              <li key={i} className="flex items-center gap-2 text-sm bg-gray-900 border border-gray-850 rounded-xl px-3 py-2">
+                <span className="flex-1 text-gray-200">{f.name} <span className="text-xs text-gray-500">({f.serving})</span></span>
                 <input type="number" step="0.25" min="0" value={e.servings}
                   onChange={ev => onChangeServing(i, parseFloat(ev.target.value) || 0)}
-                  className="w-16 bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-xs" />
-                <span className="text-xs text-gray-400 w-24 text-right">
+                  className="w-16 bg-gray-950 border border-gray-855 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500 font-mono" />
+                <span className="text-xs text-gray-400 w-24 text-right font-mono">
                   {fmt(f.kcal * e.servings)} kcal · {fmt(f.p * e.servings)}g P
                 </span>
-                <button onClick={() => onRemove(i)} className="text-red-400 hover:text-red-300 text-xs">×</button>
+                <button onClick={() => onRemove(i)} className="text-red-400 hover:text-red-300 text-sm font-bold w-6 h-6 flex items-center justify-center rounded-lg hover:bg-red-500/10 transition">×</button>
               </li>
             );
           })}
@@ -683,52 +684,94 @@ export default function NutritionPage() {
   }, [weekDays]);
 
   return (
-    <div className="min-h-screen p-4 max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold mb-1">Nutrition</h1>
-      <p className="text-gray-400 text-sm mb-6">Meal log · macro targets · weekly rollup</p>
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: 'easeOut' }}
+      className="space-y-6"
+    >
       <Nav />
 
+      {/* Main Stats Banner */}
+      <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <span className="font-mono text-xs text-gray-500 tracking-widest uppercase">NUTRITION PORTAL</span>
+          <h2 className="text-xl md:text-2xl font-bold font-display mt-0.5 text-white">
+            Plan-D Macro Engine
+          </h2>
+          <p className="text-gray-400 text-sm mt-1">
+            Macro-targeted fuel timing · adaptive meal planner · compliance assistant.
+          </p>
+        </div>
+        <div className="text-left sm:text-right shrink-0">
+          <span className="text-[10px] font-mono text-gray-500 block uppercase tracking-wider">DAILY CALORIES</span>
+          <span className="text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 mt-1 border border-emerald-500/25 font-mono">
+            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+            {fmt(t.kcal)} / {fmt(store.targets.kcal)} Kcal
+          </span>
+        </div>
+      </div>
+
       {/* Presets + targets */}
-      <div className="bg-gray-800 rounded-lg p-4 mb-4">
-        <div className="flex flex-wrap gap-2 items-center mb-3">
-          <span className="text-xs text-gray-400">Preset:</span>
+      <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 shadow-xl space-y-4">
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-xs font-mono text-gray-400 mr-2">Preset Protocol:</span>
           {(['foundation','peak','custom'] as const).map(k => (
-            <button key={k} onClick={() => setPreset(k)}
-              className={`px-3 py-1 rounded text-xs ${store.preset === k ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
-              {k === 'foundation' ? 'Foundation · 2400 kcal / 180P' : k === 'peak' ? 'Peak · 2200 kcal / 200P' : 'Custom'}
+            <button
+              key={k}
+              onClick={() => setPreset(k)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold font-mono border transition-all duration-300 ${
+                store.preset === k
+                  ? 'bg-blue-600/80 border-blue-400/50 text-white shadow-lg shadow-blue-500/20 scale-105'
+                  : 'bg-gray-800/40 border-gray-700/50 text-gray-300 hover:border-blue-500/40 hover:bg-gray-800/70'
+              }`}
+            >
+              {k === 'foundation' ? 'Foundation (2400 kcal / 180P)' : k === 'peak' ? 'Peak (2200 kcal / 200P)' : 'Custom'}
             </button>
           ))}
         </div>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {(['kcal','p','c','f'] as const).map(k => (
-            <label key={k} className="text-xs text-gray-400">
-              {k === 'kcal' ? 'kcal' : k === 'p' ? 'Protein (g)' : k === 'c' ? 'Carbs (g)' : 'Fat (g)'}
-              <input type="number" value={store.targets[k]} onChange={e => setTarget(k, parseInt(e.target.value) || 0)}
-                className="w-full bg-gray-900 border border-gray-700 px-2 py-1 rounded text-sm mt-1 text-gray-100" />
-            </label>
+            <div key={k}>
+              <label className="text-xs font-mono text-gray-400 block mb-1">
+                {k === 'kcal' ? 'Target Calories (kcal)' : k === 'p' ? 'Protein (g)' : k === 'c' ? 'Carbs (g)' : 'Fat (g)'}
+              </label>
+              <input
+                type="number"
+                value={store.targets[k]}
+                onChange={e => setTarget(k, parseInt(e.target.value) || 0)}
+                className="w-full bg-gray-950 border border-gray-850 hover:border-gray-750 focus:border-blue-500 focus:outline-none rounded-xl px-3 py-2 text-sm text-white"
+              />
+            </div>
           ))}
         </div>
       </div>
 
-      <div className="flex gap-2 mb-4">
-        <button onClick={() => setView('today')}
-          className={`px-3 py-1 rounded text-sm ${view === 'today' ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-700'}`}>Today</button>
-        <button onClick={() => setView('week')}
-          className={`px-3 py-1 rounded text-sm ${view === 'week' ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-700'}`}>Week Summary</button>
-        <button onClick={() => setView('meals')}
-          className={`px-3 py-1 rounded text-sm ${view === 'meals' ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-700'}`}>
-          Meals <span className="text-[10px] opacity-70 ml-1">({meals.length})</span>
-        </button>
-        <button onClick={() => setView('tools')}
-          className={`px-3 py-1 rounded text-sm ${view === 'tools' ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-700'}`}>
-          Tools
-        </button>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)}
-          className="ml-auto bg-gray-900 border border-gray-700 px-2 py-1 rounded text-sm" />
+      {/* Sub-Navigation Tabs */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(['today', 'week', 'meals', 'tools'] as const).map(k => (
+          <button
+            key={k}
+            onClick={() => setView(k)}
+            className={`px-4 py-2 rounded-xl text-sm font-medium font-mono border transition-all duration-200 ${
+              view === k
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.05)]'
+                : 'bg-gray-900/40 border-gray-800/50 text-gray-400 hover:text-white hover:bg-gray-900'
+            }`}
+          >
+            {k === 'today' ? 'Today' : k === 'week' ? 'Week Summary' : k === 'meals' ? `Meals (${meals.length})` : 'Tools'}
+          </button>
+        ))}
+        <input
+          type="date"
+          value={date}
+          onChange={e => setDate(e.target.value)}
+          className="ml-auto bg-gray-950 border border-gray-850 rounded-xl px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-blue-500"
+        />
       </div>
 
       {view === 'today' ? (
-        <div className="space-y-5">
+        <div className="space-y-6">
           <section className="mb-5 rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/50 via-gray-900 to-gray-900 p-5 shadow-xl">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -754,20 +797,20 @@ export default function NutritionPage() {
           </section>
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
           <div>
-            <div className="bg-gray-800 rounded-lg p-4 mb-4 space-y-3">
+            <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 mb-4 space-y-3 shadow-xl">
               <div className="flex justify-between items-baseline">
-                <h2 className="font-semibold">Daily Totals</h2>
-                <span className="text-xs text-gray-400">{date}</span>
+                <h2 className="font-semibold text-white font-mono uppercase tracking-wider text-sm">Daily Totals</h2>
+                <span className="text-xs text-gray-500 font-mono">{date}</span>
               </div>
               <Bar label="Calories" val={t.kcal}  target={store.targets.kcal} unit="kcal" />
               <Bar label="Protein"  val={t.p}     target={store.targets.p}    unit="g" />
               <Bar label="Carbs"    val={t.c}     target={store.targets.c}    unit="g" />
               <Bar label="Fat"      val={t.f}     target={store.targets.f}    unit="g" />
             </div>
-            <div className="rounded-2xl border border-gray-800 bg-gray-900/70 p-3">
+            <div className="rounded-2xl border border-gray-800 bg-gray-900/40 p-4">
               <div className="mb-3 grid grid-cols-4 gap-2">
                 {(['breakfast','lunch','dinner','snacks'] as Meal[]).map(slot => (
-                  <button key={slot} onClick={() => setActiveMealSlot(slot)} className={`rounded-xl px-2 py-2 text-xs font-bold capitalize ${activeMealSlot === slot ? 'bg-emerald-500 text-gray-950' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                  <button key={slot} onClick={() => setActiveMealSlot(slot)} className={`rounded-xl px-2 py-2.5 text-xs font-bold font-mono capitalize border transition-all duration-200 ${activeMealSlot === slot ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-gray-900/60 border-gray-800 text-gray-400 hover:text-white'}`}>
                     {slot}
                   </button>
                 ))}
@@ -778,47 +821,47 @@ export default function NutritionPage() {
             </div>
           </div>
 
-          <aside className="space-y-3 lg:sticky lg:top-4 self-start">
-            <div className="bg-gray-800 rounded-lg p-3 border border-gray-700">
+          <aside className="space-y-4 lg:sticky lg:top-4 self-start">
+            <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 space-y-4 shadow-xl">
               <div className="flex items-center justify-between gap-2 mb-1.5">
-                <h2 className="font-semibold text-sm">Suggestions to hit goals</h2>
+                <h2 className="font-bold font-display text-white text-sm">Suggestions to hit goals</h2>
                 <button onClick={() => setRefreshSeed(s => s + 1)}
                   title="Show different options"
-                  className="text-[11px] px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 flex items-center gap-1 transition">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">
+                  className="text-[11px] px-2.5 py-1.5 rounded-xl border border-gray-750 bg-gray-800 hover:bg-gray-750 text-gray-200 flex items-center gap-1 transition font-mono">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3 text-emerald-400">
                     <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
                     <path d="M21 3v5h-5" />
                   </svg>
                   Refresh
                 </button>
               </div>
-              <div className="mb-2 rounded bg-gray-900/70 border border-gray-700 px-2 py-1.5">
-                <div className="text-[10px] font-semibold text-emerald-300">{windowLabel(activeWindow)}</div>
-                <div className="text-[10px] text-gray-400">{windowGuidance(activeWindow)}</div>
+              <div className="mb-2 rounded-xl bg-gray-950/40 border border-gray-850 px-3 py-2.5">
+                <div className="text-[10px] font-bold font-mono text-emerald-400 uppercase tracking-wider">{windowLabel(activeWindow)}</div>
+                <div className="text-[11px] text-gray-400 mt-1 leading-relaxed">{windowGuidance(activeWindow)}</div>
               </div>
-              <p className="text-[11px] text-gray-400 mb-2">
+              <p className="text-[11px] text-gray-400 font-mono">
                 Remaining: {fmt(Math.max(0, remaining.kcal))} kcal · {fmt(Math.max(0, remaining.p))}g P · {fmt(Math.max(0, remaining.c))}g C · {fmt(Math.max(0, remaining.f))}g F
               </p>
               <div className="space-y-1.5">
                 {suggestions.map(s => {
                   const plan = planTotals(s.items);
                   return (
-                    <div key={s.title} className="rounded bg-gray-900/70 border border-gray-700 px-2 py-1.5">
+                    <div key={s.title} className="rounded-xl bg-gray-950/40 border border-gray-850 px-3 py-2.5">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs font-medium text-gray-100 truncate">{s.title}</div>
-                        <div className={`text-[10px] font-mono flex-shrink-0 ${s.accent}`}>{Math.round(plan.kcal)}k · {Math.round(plan.p)}P</div>
+                        <div className="text-xs font-semibold text-gray-200 truncate">{s.title}</div>
+                        <div className={`text-[10px] font-mono font-bold flex-shrink-0 ${s.accent}`}>{Math.round(plan.kcal)}k · {Math.round(plan.p)}P</div>
                       </div>
-                      <div className="mt-1 flex flex-wrap gap-1">
+                      <div className="mt-2 flex flex-wrap gap-1">
                         {s.items.map(item => {
                           const food = foodById.get(item.foodId);
                           return food ? (
-                            <span key={`${s.title}-${item.foodId}`} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">
+                            <span key={`${s.title}-${item.foodId}`} className="text-[10px] px-2 py-0.5 rounded bg-gray-900 border border-gray-800 text-gray-300">
                               {food.name}{item.servings !== 1 ? ` ×${item.servings}` : ''}
                             </span>
                           ) : null;
                         })}
                       </div>
-                      <button onClick={() => addSuggestionToLog(s.items)} className="mt-2 w-full rounded bg-emerald-600/90 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500">
+                      <button onClick={() => addSuggestionToLog(s.items)} className="mt-2.5 w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white transition">
                         Add to {nextMealSlot}
                       </button>
                     </div>
@@ -827,7 +870,7 @@ export default function NutritionPage() {
               </div>
             </div>
 
-            <details className="bg-gray-800 rounded-lg p-3 border border-gray-700">
+            <details className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 group shadow-xl">
               <summary className="flex cursor-pointer items-center justify-between gap-2 text-sm font-semibold text-gray-200">
                 <span>Need help with this meal?</span>
                 <span className="text-[11px] font-normal text-gray-500">Coach · recipe scan · timing</span>
@@ -912,40 +955,42 @@ export default function NutritionPage() {
       ) : view === 'tools' ? (
         <SupsLog />
       ) : (
-        <div className="bg-gray-800 rounded-lg p-4">
-          <h2 className="font-semibold mb-3">7-Day Rollup (ending {date})</h2>
-          <div className="grid grid-cols-4 gap-3 mb-4 text-center">
-            <div className="bg-gray-900 rounded p-2"><div className="text-xs text-gray-400">Avg kcal</div><div className="text-lg">{fmt(weekAvg.kcal)}</div></div>
-            <div className="bg-gray-900 rounded p-2"><div className="text-xs text-gray-400">Avg P</div><div className="text-lg">{fmt(weekAvg.p)}g</div></div>
-            <div className="bg-gray-900 rounded p-2"><div className="text-xs text-gray-400">Avg C</div><div className="text-lg">{fmt(weekAvg.c)}g</div></div>
-            <div className="bg-gray-900 rounded p-2"><div className="text-xs text-gray-400">Avg F</div><div className="text-lg">{fmt(weekAvg.f)}g</div></div>
+        <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 space-y-4">
+          <h2 className="text-lg font-bold text-white font-display">7-Day Rollup (ending {date})</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-center">
+            <div className="bg-gray-950/40 border border-gray-850 rounded-xl p-3"><div className="text-xs text-gray-400 font-mono">Avg kcal</div><div className="text-lg font-bold font-mono text-white mt-1">{fmt(weekAvg.kcal)}</div></div>
+            <div className="bg-gray-950/40 border border-gray-850 rounded-xl p-3"><div className="text-xs text-gray-400 font-mono">Avg P</div><div className="text-lg font-bold font-mono text-white mt-1">{fmt(weekAvg.p)}g</div></div>
+            <div className="bg-gray-950/40 border border-gray-850 rounded-xl p-3"><div className="text-xs text-gray-400 font-mono">Avg C</div><div className="text-lg font-bold font-mono text-white mt-1">{fmt(weekAvg.c)}g</div></div>
+            <div className="bg-gray-950/40 border border-gray-850 rounded-xl p-3"><div className="text-xs text-gray-400 font-mono">Avg F</div><div className="text-lg font-bold font-mono text-white mt-1">{fmt(weekAvg.f)}g</div></div>
           </div>
-          <table className="w-full text-sm">
-            <thead className="text-xs text-gray-400 border-b border-gray-700">
-              <tr><th className="text-left py-2">Date</th><th className="text-right">kcal</th><th className="text-right">P</th><th className="text-right">C</th><th className="text-right">F</th><th className="text-right">vs kcal target</th></tr>
-            </thead>
-            <tbody>
-              {weekDays.map(d => {
-                const dot = d.totals.kcal / store.targets.kcal;
-                return (
-                  <tr key={d.date} className="border-b border-gray-700">
-                    <td className="py-1">{d.date}</td>
-                    <td className="text-right">{fmt(d.totals.kcal)}</td>
-                    <td className="text-right">{fmt(d.totals.p)}</td>
-                    <td className="text-right">{fmt(d.totals.c)}</td>
-                    <td className="text-right">{fmt(d.totals.f)}</td>
-                    <td className="text-right">
-                      <span className={dot > 1.1 ? 'text-red-400' : dot >= 0.9 ? 'text-emerald-400' : 'text-gray-500'}>
-                        {(dot * 100).toFixed(0)}%
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs text-gray-400 border-b border-gray-800">
+                <tr><th className="text-left py-2 font-mono uppercase">Date</th><th className="text-right font-mono uppercase">kcal</th><th className="text-right font-mono uppercase">P</th><th className="text-right font-mono uppercase">C</th><th className="text-right font-mono uppercase">F</th><th className="text-right font-mono uppercase">vs kcal target</th></tr>
+              </thead>
+              <tbody>
+                {weekDays.map(d => {
+                  const dot = d.totals.kcal / store.targets.kcal;
+                  return (
+                    <tr key={d.date} className="border-b border-gray-850 hover:bg-gray-900/30 transition-colors">
+                      <td className="py-2.5 font-mono text-xs">{d.date}</td>
+                      <td className="text-right font-mono">{fmt(d.totals.kcal)}</td>
+                      <td className="text-right font-mono">{fmt(d.totals.p)}g</td>
+                      <td className="text-right font-mono">{fmt(d.totals.c)}g</td>
+                      <td className="text-right font-mono">{fmt(d.totals.f)}g</td>
+                      <td className="text-right font-mono">
+                        <span className={dot > 1.1 ? 'text-red-400 font-bold' : dot >= 0.9 ? 'text-emerald-400 font-bold' : 'text-gray-500'}>
+                          {(dot * 100).toFixed(0)}%
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
-      </div>
+    </motion.div>
   );
 }
