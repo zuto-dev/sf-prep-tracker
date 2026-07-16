@@ -471,6 +471,7 @@ export default function NutritionPage() {
 
   // AI Plate Scanner states
   const [scanPreview, setScanPreview] = useState<string | null>(null);
+  const [scanPrompt, setScanPrompt] = useState('');
   const [scanResult, setScanResult] = useState<any | null>(null);
   const [isScanning, setIsScanning] = useState(false);
 
@@ -492,7 +493,7 @@ export default function NutritionPage() {
       const res = await fetch('/api/photo-scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: scanPreview })
+        body: JSON.stringify({ image: scanPreview, prompt: scanPrompt })
       });
       if (res.ok) {
         const data = await res.json();
@@ -541,6 +542,7 @@ export default function NutritionPage() {
     // Reset scanner
     setScanPreview(null);
     setScanResult(null);
+    setScanPrompt('');
     setView('today');
   };
 
@@ -918,19 +920,31 @@ export default function NutritionPage() {
               </div>
 
               {scanPreview && !isScanning && (
-                <div className="flex gap-2">
-                  <button
-                    onClick={runScanAnalysis}
-                    className="flex-1 py-3 bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white rounded-xl font-mono font-bold text-xs shadow-lg transition active:scale-[0.98]"
-                  >
-                    Analyze Plate Macros
-                  </button>
-                  <button
-                    onClick={() => { setScanPreview(null); setScanResult(null); }}
-                    className="px-4 py-3 bg-gray-850 hover:bg-gray-800 border border-gray-750 text-gray-400 hover:text-white rounded-xl font-mono text-xs transition"
-                  >
-                    Reset
-                  </button>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-mono text-gray-400 block mb-1">Meal description or hints (optional)</label>
+                    <input
+                      type="text"
+                      value={scanPrompt}
+                      onChange={e => setScanPrompt(e.target.value)}
+                      placeholder="e.g., steak with sweet potatoes, salmon salad..."
+                      className="w-full bg-gray-950 border border-gray-850 focus:border-blue-500 focus:outline-none rounded-xl px-3 py-2 text-xs text-white"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={runScanAnalysis}
+                      className="flex-1 py-3 bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white rounded-xl font-mono font-bold text-xs shadow-lg transition active:scale-[0.98]"
+                    >
+                      Analyze Plate Macros
+                    </button>
+                    <button
+                      onClick={() => { setScanPreview(null); setScanResult(null); setScanPrompt(''); }}
+                      className="px-4 py-3 bg-gray-850 hover:bg-gray-800 border border-gray-750 text-gray-400 hover:text-white rounded-xl font-mono text-xs transition"
+                    >
+                      Reset
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
