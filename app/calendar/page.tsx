@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Nav } from '../components/Nav';
 import { WeeklyPlanner } from '../components/WeeklyPlanner';
+import { motion, AnimatePresence } from 'motion/react';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 import { FOODS, type Food } from '../data/foods';
 import { type UserMeal } from '../data/meals';
@@ -249,48 +250,48 @@ export default function CalendarPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <svg className="animate-spin h-10 w-10 text-blue-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24">
+      <div className="min-h-[400px] flex items-center justify-center">
+        <div className="text-center bg-gray-900/60 border border-gray-800 rounded-2xl p-8 backdrop-blur-md max-w-sm mx-auto shadow-2xl">
+          <svg className="animate-spin h-8 w-8 text-emerald-400 mx-auto mb-4" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-          <p className="text-gray-400">Aggregating training telemetry...</p>
+          <p className="text-gray-300 font-mono text-xs tracking-wider">AGGREGATING HUD TELEMETRY...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Animated background gradient */}
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/10 via-gray-950 to-purple-950/15 pointer-events-none" />
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: 'easeOut' }}
+      className="space-y-6"
+    >
+      <Nav />
 
-      {/* Hero Section */}
-      <div className="relative bg-gradient-to-b from-blue-950/40 to-transparent backdrop-blur-sm pb-8">
-        <div className="max-w-7xl mx-auto p-4">
-          <div className="mb-6 flex justify-between items-start flex-wrap gap-4 animate-fade-in">
-            <div>
-              <h1 className="text-5xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-400 bg-clip-text text-transparent">
-                Cross-Store HUD Matrix
-              </h1>
-              <p className="text-gray-400 mt-2 text-lg">
-                Adaptive Periodization Calendar · <span className="text-blue-400 font-semibold">Day {planDProgress.day} · Week {planDProgress.week}</span>
-              </p>
-            </div>
-            <div className="text-right">
-              <span className="text-xs text-gray-500 block">LAST TELEMETRY RETRIEVAL</span>
-              <span className="text-xs bg-emerald-500/20 text-emerald-400 font-semibold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 mt-1 border border-emerald-500/20">
-                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                Sync Active (LWW Element CRDT)
-              </span>
-            </div>
-          </div>
-          <Nav />
+      {/* Main Stats Banner */}
+      <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <span className="font-mono text-xs text-gray-500 tracking-widest uppercase">HUD MATRIX</span>
+          <h2 className="text-xl md:text-2xl font-bold font-display mt-0.5 text-white">
+            Cross-Store HUD Matrix
+          </h2>
+          <p className="text-gray-400 text-sm mt-1">
+            Adaptive Periodization Calendar · Week <span className="text-emerald-400 font-mono font-bold">{planDProgress.week}</span> · Day <span className="text-emerald-400 font-mono font-bold">{planDProgress.day}</span>
+          </p>
+        </div>
+        <div className="text-left sm:text-right shrink-0">
+          <span className="text-[10px] font-mono text-gray-500 block uppercase tracking-wider">LAST TELEMETRY RETRIEVAL</span>
+          <span className="text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 mt-1 border border-emerald-500/25">
+            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+            Sync Active (LWW Element CRDT)
+          </span>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto p-4 -mt-6 relative z-10 space-y-6">
+      <div className="space-y-6">
         
         {/* Predictive & Standards Analytics Banners */}
         <div className="grid md:grid-cols-2 gap-4">
@@ -505,6 +506,6 @@ export default function CalendarPage() {
         )}
 
       </div>
-    </div>
+    </motion.div>
   );
 }

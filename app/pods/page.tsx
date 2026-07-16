@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Nav } from '../components/Nav';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   buildBookmarks,
   searchPodContent,
@@ -110,27 +111,35 @@ export default function PodsPage() {
   const duration = DEFAULT_DURATION_SECONDS;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 pb-28">
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/20 via-gray-950 to-purple-950/20 pointer-events-none" />
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: 'easeOut' }}
+      className="space-y-6 pb-28"
+    >
+      <Nav />
 
-      <div className="relative bg-gradient-to-b from-blue-950/40 to-transparent backdrop-blur-sm pb-8">
-        <div className="max-w-7xl mx-auto p-4">
-          <div className="mb-6 flex justify-between items-start flex-wrap gap-4 animate-fade-in">
-            <div>
-              <h1 className="text-5xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-400 bg-clip-text text-transparent">
-                SF Pod Debriefs
-              </h1>
-              <p className="text-gray-400 mt-2 text-lg">
-                Daily podcast episodes · key takeaways · skills to practice ·{' '}
-                <span className="text-emerald-400 font-semibold">{doneSkills}/{totalSkills} skills checked</span>
-              </p>
-            </div>
-          </div>
-          <Nav />
+      {/* Main Stats Banner */}
+      <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <span className="font-mono text-xs text-gray-500 tracking-widest uppercase">TACTICAL AUDIO</span>
+          <h2 className="text-xl md:text-2xl font-bold font-display mt-0.5 text-white">
+            SF Pod Debriefs
+          </h2>
+          <p className="text-gray-400 text-sm mt-1">
+            Daily podcast episodes · key takeaways · skills to practice.
+          </p>
+        </div>
+        <div className="text-left sm:text-right shrink-0">
+          <span className="text-[10px] font-mono text-gray-500 block uppercase tracking-wider">SKILLS MASTERY</span>
+          <span className="text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 mt-1 border border-emerald-500/25">
+            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+            {doneSkills}/{totalSkills} Checked
+          </span>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto p-4 -mt-6 relative z-10 space-y-6">
+      <div className="space-y-6">
         {error && (
           <div className="backdrop-blur-md bg-red-950/20 border border-red-700/50 text-red-200 px-5 py-4 rounded-2xl mb-4 text-sm">
             {error}. Cron writes to <code>~/fitness-tracker/public/pods.json</code>.
@@ -395,6 +404,6 @@ export default function PodsPage() {
           animation: shine 3s ease-in-out infinite;
         }
       `}</style>
-    </div>
+    </motion.div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Nav } from '../components/Nav';
+import { motion, AnimatePresence } from 'motion/react';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 import { AR_BANK, pickReviewSet, type ARQuestion } from './ar-question-bank';
 import { calculateGTScore, calculateRequiredARForGT, TRACK_GT_REQUIREMENTS, estimateWeeksToTarget } from './psychometric-gt';
@@ -668,10 +669,15 @@ export default function StudyPage() {
     };
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white">
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: 'easeOut' }}
+        className="space-y-6"
+      >
         <Nav />
-        <div className="max-w-xl mx-auto p-4 md:p-8 mt-6">
-          <div className="bg-black/40 backdrop-blur-md border border-gray-800/80 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden">
+        <div className="max-w-xl mx-auto">
+          <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden">
             {/* Ambient Background Glow */}
             <div className="absolute -top-24 -left-24 w-48 h-48 bg-blue-600/10 rounded-full blur-3xl" />
             <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-violet-600/10 rounded-full blur-3xl" />
@@ -787,121 +793,109 @@ export default function StudyPage() {
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white">
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: 'easeOut' }}
+      className="space-y-6"
+    >
       <Nav />
-      
-      {/* GT Score Header */}
-      <div className="sticky top-14 z-40 bg-gray-900/80 backdrop-blur border-b border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex flex-wrap gap-6 items-center justify-between">
-            <div className="flex gap-6">
-              {/* GT Score */}
-              <div className="flex items-center gap-3">
-                <Brain className="w-8 h-8 text-blue-400" />
-                <div>
-                  <p className="text-sm text-gray-400">Estimated GT</p>
-                  <p className="text-2xl font-bold">
-                    {gtCalc ? (
-                      <span className={gtCalc.meetsTarget ? 'text-green-400' : 'text-yellow-400'}>
-                        {gtCalc.estimatedGT}
-                      </span>
-                    ) : '---'}
-                  </p>
-                </div>
-              </div>
-              
-              {/* Target */}
-              <div className="flex items-center gap-3">
-                <Target className="w-8 h-8 text-violet-400" />
-                <div>
-                  <p className="text-sm text-gray-400">To Target</p>
-                  <p className="text-2xl font-bold">
-                    {gtCalc ? (
-                      gtCalc.meetsTarget ? 
-                        <span className="text-green-400">✓ Met</span> :
-                        <span className="text-orange-400">+{gtCalc.pointsToTarget}</span>
-                    ) : '---'}
-                  </p>
-                </div>
-              </div>
-              
-              {/* Track */}
-              <div className="flex items-center gap-3">
-                <TrendingUp className="w-8 h-8 text-green-400" />
-                <div>
-                  <p className="text-sm text-gray-400">Track</p>
-                  <p className="text-2xl font-bold text-blue-400">{track}</p>
-                </div>
-              </div>
+
+      {/* Main Stats Banner */}
+      <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <span className="font-mono text-xs text-gray-500 tracking-widest uppercase">COGNITIVE LAB</span>
+          <h2 className="text-xl md:text-2xl font-bold font-display mt-0.5 text-white">
+            ASVAB / GT Study Suite
+          </h2>
+          <p className="text-gray-400 text-sm mt-1">
+            Peterson's diagnostic baseline percentages mapping to adaptive Leitner system.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="bg-gray-950/40 border border-gray-800/80 px-4 py-2.5 rounded-xl text-center min-w-[100px]">
+            <div className="text-[10px] text-gray-400 font-mono uppercase">ESTIMATED GT</div>
+            <div className={`text-lg font-black font-mono ${gtCalc?.meetsTarget ? 'text-green-400' : 'text-yellow-400'}`}>
+              {gtCalc?.estimatedGT ?? '—'}
             </div>
-            
-            {/* Update Scores Button */}
-            <button
-              onClick={() => setShowDiagInput(!showDiagInput)}
-              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm transition-colors"
-            >
-              Update Scores
-            </button>
           </div>
-          
-          {/* Score Input Panel */}
-          {showDiagInput && (
-            <div className="mt-4 p-4 bg-gray-800/50 rounded-lg">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="text-xs text-gray-400">AR %</label>
-                  <input
-                    type="number"
-                    value={store.arDiag || ''}
-                    onChange={(e) => store.setScores(Number(e.target.value), store.mkDiag, store.wkDiag, store.pcDiag)}
-                    className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400">MK %</label>
-                  <input
-                    type="number"
-                    value={store.mkDiag || ''}
-                    onChange={(e) => store.setScores(store.arDiag, Number(e.target.value), store.wkDiag, store.pcDiag)}
-                    className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400">WK % (Word Knowledge)</label>
-                  <input
-                    type="number"
-                    value={store.wkDiag || ''}
-                    onChange={(e) => store.setScores(store.arDiag, store.mkDiag, Number(e.target.value), store.pcDiag)}
-                    placeholder="86"
-                    className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400">PC % (Paragraph Comp)</label>
-                  <input
-                    type="number"
-                    value={store.pcDiag || ''}
-                    onChange={(e) => store.setScores(store.arDiag, store.mkDiag, store.wkDiag, Number(e.target.value))}
-                    placeholder="75"
-                    className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-              <div className="mt-3 text-sm text-gray-400">
-                VE Standard Score: {gtCalc?.veStandardScore || '--'} | 
-                AR Standard Score: {gtCalc?.arStandardScore || '--'}
-              </div>
+          <div className="bg-gray-950/40 border border-gray-800/80 px-4 py-2.5 rounded-xl text-center min-w-[100px]">
+            <div className="text-[10px] text-gray-400 font-mono uppercase">TO TARGET</div>
+            <div className={`text-lg font-black font-mono ${gtCalc?.meetsTarget ? 'text-green-400' : 'text-orange-400'}`}>
+              {gtCalc ? (gtCalc.meetsTarget ? '✓ Met' : `+${gtCalc.pointsToTarget}`) : '—'}
             </div>
-          )}
+          </div>
+          <div className="bg-gray-950/40 border border-gray-800/80 px-4 py-2.5 rounded-xl text-center min-w-[100px]">
+            <div className="text-[10px] text-gray-400 font-mono uppercase">TRACK</div>
+            <div className="text-lg font-black font-mono text-blue-400">
+              {track}
+            </div>
+          </div>
+          <button
+            onClick={() => setShowDiagInput(!showDiagInput)}
+            className="px-4 py-2.5 bg-gray-850 hover:bg-gray-800 border border-gray-750 text-white rounded-xl text-xs font-mono transition-colors self-stretch flex items-center justify-center"
+          >
+            Update Scores
+          </button>
         </div>
       </div>
-      
-      <div className="max-w-7xl mx-auto px-4 py-8">
+
+      {/* Score Input Panel */}
+      {showDiagInput && (
+        <div className="p-5 bg-gray-900/40 border border-gray-800 rounded-2xl">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <label className="text-xs text-gray-400 font-mono block mb-1">AR %</label>
+              <input
+                type="number"
+                value={store.arDiag || ''}
+                onChange={(e) => store.setScores(Number(e.target.value), store.mkDiag, store.wkDiag, store.pcDiag)}
+                className="w-full px-3 py-2 bg-gray-950 border border-gray-850 hover:border-gray-750 focus:border-blue-500 focus:outline-none rounded-xl text-sm text-white"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 font-mono block mb-1">MK %</label>
+              <input
+                type="number"
+                value={store.mkDiag || ''}
+                onChange={(e) => store.setScores(store.arDiag, Number(e.target.value), store.wkDiag, store.pcDiag)}
+                className="w-full px-3 py-2 bg-gray-950 border border-gray-850 hover:border-gray-750 focus:border-blue-500 focus:outline-none rounded-xl text-sm text-white"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 font-mono block mb-1">WK % (Word Knowledge)</label>
+              <input
+                type="number"
+                value={store.wkDiag || ''}
+                onChange={(e) => store.setScores(store.arDiag, store.mkDiag, Number(e.target.value), store.pcDiag)}
+                placeholder="86"
+                className="w-full px-3 py-2 bg-gray-950 border border-gray-850 hover:border-gray-750 focus:border-blue-500 focus:outline-none rounded-xl text-sm text-white"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 font-mono block mb-1">PC % (Paragraph Comp)</label>
+              <input
+                type="number"
+                value={store.pcDiag || ''}
+                onChange={(e) => store.setScores(store.arDiag, store.mkDiag, store.wkDiag, Number(e.target.value))}
+                placeholder="75"
+                className="w-full px-3 py-2 bg-gray-950 border border-gray-850 hover:border-gray-750 focus:border-blue-500 focus:outline-none rounded-xl text-sm text-white"
+              />
+            </div>
+          </div>
+          <div className="mt-3 text-xs font-mono text-gray-400">
+            VE Standard Score: {gtCalc?.veStandardScore || '--'} | 
+            AR Standard Score: {gtCalc?.arStandardScore || '--'}
+          </div>
+        </div>
+      )}
+
+      <div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-8">
@@ -1266,6 +1260,6 @@ export default function StudyPage() {
           store={store}
         />
       )}
-    </div>
+    </motion.div>
   );
 }

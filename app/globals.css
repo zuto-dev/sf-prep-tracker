@@ -1,10 +1,36 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: var(--font-sans), system-ui, sans-serif;
+  --font-display: var(--font-display), system-ui, sans-serif;
+  --font-mono: var(--font-mono), monospace;
+}
+
 body {
-  background-color: rgb(17, 24, 39);
+  background-color: rgb(3, 7, 18); /* slate-950 */
   color: rgb(243, 244, 246);
 }
 
+/* Custom visual utilities for professional aesthetics */
 .bg-gray-750 {
-  background-color: rgb(45, 45, 50);
+  background-color: rgb(31, 41, 55); /* gray-800 */
+}
+
+/* Smooth custom scrollbars for logs and search lists */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.4);
 }

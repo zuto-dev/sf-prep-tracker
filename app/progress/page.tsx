@@ -1,11 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { TrendingUp, TrendingDown, Target } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Nav } from '../components/Nav';
-import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
-import { forecastTargetDate, correlate, type ForecastResult } from '../lib/progress-forecast';
+import { motion, AnimatePresence } from 'motion/react';
+import { Compass, Activity, Award, Scale, Plus, Trash2, Target, Calendar, ChevronRight } from 'lucide-react';
 
 type Metric = 'ruckPace' | 'runPace' | 'ptScore' | 'bodyWeight';
 
@@ -17,11 +16,56 @@ type MetricsStore = Record<Metric, Point[]>;
 
 const empty: MetricsStore = { ruckPace: [], runPace: [], ptScore: [], bodyWeight: [] };
 
-const METRIC_META: Record<Metric, { label: string; unit: string; hint: string; higherIsBetter: boolean; target: number }> = {
-  ruckPace:   { label: 'Ruck Pace',   unit: 'min/mi', hint: 'Saturday ruck. Log avg min/mile.',        higherIsBetter: false, target: 15 },
-  runPace:    { label: '2-Mile Time', unit: 'min',    hint: 'Time-trial minutes (e.g. 15.5 for 15:30).', higherIsBetter: false, target: 13 },
-  ptScore:    { label: 'PT Test',     unit: 'score',  hint: 'Push-ups + sit-ups combined.',              higherIsBetter: true,  target: 180 },
-  bodyWeight: { label: 'Body Weight', unit: 'lb',     hint: 'Friday fasted weigh-in.',                   higherIsBetter: false, target: 185 },
+const METRIC_META: Record<Metric, {
+  label: string;
+  unit: string;
+  hint: string;
+  target: string;
+  eliteTarget: string;
+  icon: typeof Compass;
+  accent: string;
+  bgAccent: string;
+}> = {
+  ruckPace: {
+    label: 'Ruck Pace',
+    unit: 'min/mi',
+    hint: 'Saturday heavy ruck. Average minutes per mile.',
+    target: '< 15:00',
+    eliteTarget: '< 12:00',
+    icon: Compass,
+    accent: '#f59e0b', // Amber
+    bgAccent: 'rgba(245, 158, 11, 0.1)',
+  },
+  runPace: {
+    label: '2-Mile Time',
+    unit: 'min',
+    hint: 'Time-trial minutes (e.g., 14.5 for 14:30).',
+    target: '< 14:00',
+    eliteTarget: '< 13:00',
+    icon: Activity,
+    accent: '#3b82f6', // Blue
+    bgAccent: 'rgba(59, 130, 246, 0.1)',
+  },
+  ptScore: {
+    label: 'PT Test Score',
+    unit: 'pts',
+    hint: 'Push-ups + sit-ups combined reps in 4 mins.',
+    target: '> 140 reps',
+    eliteTarget: '> 180 reps',
+    icon: Award,
+    accent: '#10b981', // Emerald
+    bgAccent: 'rgba(16, 185, 129, 0.1)',
+  },
+  bodyWeight: {
+    label: 'Body Weight',
+    unit: 'lb',
+    hint: 'Fasted weekly weight check.',
+    target: '160 - 200',
+    eliteTarget: 'Athletic',
+    icon: Scale,
+    accent: '#ef4444', // Red/Rose
+    bgAccent: 'rgba(239, 68, 68, 0.1)',
+  },
 };
 
 function load(): MetricsStore {
@@ -31,278 +75,252 @@ function load(): MetricsStore {
     if (!raw) return empty;
     const parsed = JSON.parse(raw) as Partial<MetricsStore>;
     return { ...empty, ...parsed };
-  } catch { return empty; }
+  } catch {
+    return empty;
+  }
 }
 
 function save(store: MetricsStore) {
   if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-  void pushSfprepSync();
 }
 
-/** Earliest logged date across all metrics — used as the OLS program-start anchor. */
-function programStartDate(store: MetricsStore): Date {
-  const allDates = Object.values(store).flat().map(p => p.date);
-  if (allDates.length === 0) return new Date();
-  const earliest = [...allDates].sort()[0];
-  return new Date(earliest + 'T00:00:00');
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: { value: number; payload: { note?: string } }[];
+  label?: string;
+  unit?: string;
 }
 
-function Chart({ data, color, forecast, target }: { data: Point[]; color: string; forecast: ForecastResult | null; target: number }) {
-  if (!data.length) return <p className="text-sm text-gray-500 py-8 text-center">No data yet — add an entry below.</p>;
+// Custom Premium Tooltip
+const CustomTooltip = ({ active, payload, label, unit }: CustomTooltipProps) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-gray-950/90 border border-gray-850 px-3.5 py-2.5 rounded-2xl shadow-xl backdrop-blur-md text-xs font-mono">
+        <p className="text-gray-400 mb-1 flex items-center gap-1">
+          <Calendar className="w-3 h-3 text-emerald-400" />
+          <span>{label}</span>
+        </p>
+        <p className="font-bold text-white text-sm">
+          Value: <span className="text-emerald-400">{payload[0].value}</span> {unit}
+        </p>
+        {payload[0].payload.note && (
+          <p className="text-gray-500 mt-1 italic max-w-xs">
+            Note: &quot;{payload[0].payload.note}&quot;
+          </p>
+        )}
+      </div>
+    );
+  }
+  return null;
+};
+
+function Chart({ data, color, unit }: { data: Point[]; color: string; unit: string }) {
+  if (!data.length) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 border border-dashed border-gray-800 rounded-2xl bg-gray-950/20">
+        <Target className="w-8 h-8 text-gray-700 mb-2 animate-pulse" />
+        <p className="text-xs font-mono text-gray-500 uppercase tracking-widest">Awaiting performance data</p>
+      </div>
+    );
+  }
   const sorted = [...data].sort((a, b) => a.date.localeCompare(b.date));
   return (
-    <ResponsiveContainer width="100%" height={240}>
-      <LineChart data={sorted}>
-        <CartesianGrid stroke="#374151" strokeDasharray="3 3" opacity={0.3} />
-        <XAxis dataKey="date" stroke="#9ca3af" fontSize={11} tickLine={false} />
-        <YAxis stroke="#9ca3af" fontSize={11} domain={['auto','auto']} tickLine={false} />
-        <Tooltip contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: '12px', color: '#f3f4f6' }} />
-        <ReferenceLine y={target} stroke="#a78bfa" strokeDasharray="4 4" label={{ value: 'target', fill: '#a78bfa', fontSize: 10, position: 'insideTopRight' }} />
-        <Line type="monotone" dataKey="value" stroke={color} strokeWidth={3} dot={{ r: 4, fill: color }} activeDot={{ r: 6 }} />
-      </LineChart>
-    </ResponsiveContainer>
-  );
-}
-
-function ForecastBadge({ forecast, meta }: { forecast: ForecastResult; meta: typeof METRIC_META[Metric] }) {
-  if (forecast.insufficientData) {
-    return (
-      <div className="text-[11px] text-gray-500 bg-gray-950/40 border border-gray-800/60 rounded-lg px-3 py-2">
-        Need 3+ logged entries to project a target date.
-      </div>
-    );
-  }
-  if (forecast.expectedDays < 0) {
-    return (
-      <div className="text-[11px] text-amber-400 bg-amber-950/20 border border-amber-800/40 rounded-lg px-3 py-2 flex items-center gap-1.5">
-        <TrendingDown className="w-3.5 h-3.5" /> {forecast.dateString}
-      </div>
-    );
-  }
-  const trendIcon = meta.higherIsBetter
-    ? <TrendingUp className="w-3.5 h-3.5" />
-    : <TrendingDown className="w-3.5 h-3.5" />;
-  return (
-    <div className="text-[11px] text-emerald-300 bg-emerald-950/20 border border-emerald-800/40 rounded-lg px-3 py-2 flex items-center gap-1.5">
-      <Target className="w-3.5 h-3.5 flex-shrink-0" />
-      <span>
-        Projected to hit <strong>{meta.target}{meta.unit === 'min' || meta.unit === 'min/mi' ? '' : meta.unit}</strong> around
-        {' '}<strong className="font-mono">{forecast.dateString}</strong>
-        {' '}(R²={forecast.r2.toFixed(2)}) {trendIcon}
-      </span>
+    <div className="w-full h-[240px] mt-2 select-none">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={sorted} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" vertical={false} />
+          <XAxis
+            dataKey="date"
+            stroke="#4b5563"
+            fontSize={10}
+            fontFamily="monospace"
+            tickLine={false}
+            dy={8}
+          />
+          <YAxis
+            stroke="#4b5563"
+            fontSize={10}
+            fontFamily="monospace"
+            tickLine={false}
+            domain={['auto', 'auto']}
+          />
+          <Tooltip content={<CustomTooltip unit={unit} />} cursor={{ stroke: '#374151', strokeWidth: 1 }} />
+          <Line
+            type="monotone"
+            dataKey="value"
+            stroke={color}
+            strokeWidth={3}
+            dot={{ r: 4, fill: '#030712', strokeWidth: 2, stroke: color }}
+            activeDot={{ r: 6, fill: color, stroke: '#030712', strokeWidth: 2 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }
 
-function MetricCard({ metric, color, store, setStore, programStart }: {
-  metric: Metric; color: string; store: MetricsStore;
+function MetricCard({ metric, store, setStore }: {
+  metric: Metric;
+  store: MetricsStore;
   setStore: (s: MetricsStore) => void;
-  programStart: Date;
 }) {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0,10));
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [value, setValue] = useState('');
   const [note, setNote] = useState('');
 
   const meta = METRIC_META[metric];
   const data = store[metric];
-
-  const forecast = useMemo(
-    () => forecastTargetDate(data, programStart, meta.target, meta.higherIsBetter),
-    [data, programStart, meta],
-  );
+  const IconComp = meta.icon;
 
   const add = () => {
     const v = parseFloat(value);
     if (!Number.isFinite(v)) return;
-    const next: MetricsStore = { ...store, [metric]: [...store[metric], { date, value: v, note: note || undefined }] };
-    setStore(next); save(next);
-    setValue(''); setNote('');
+    const next: MetricsStore = {
+      ...store,
+      [metric]: [...store[metric], { date, value: v, note: note || undefined }],
+    };
+    setStore(next);
+    save(next);
+    setValue('');
+    setNote('');
   };
-  const remove = (i: number) => {
-    const arr = [...store[metric]]; arr.splice(i, 1);
+
+  const remove = (p: Point) => {
+    const arr = store[metric].filter(item => item !== p);
     const next = { ...store, [metric]: arr };
-    setStore(next); save(next);
+    setStore(next);
+    save(next);
   };
 
   return (
-    <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl border border-gray-800/50 p-5 shadow-xl hover:border-blue-500/20 transition-all duration-300">
-      <div className="flex justify-between items-baseline mb-4">
-        <div>
-          <h2 className="text-xl font-bold text-white">{meta.label}</h2>
-          <p className="text-xs text-gray-400 mt-0.5">{meta.hint}</p>
-        </div>
-        <span className="text-xs bg-gray-800 text-gray-400 font-semibold px-2.5 py-1 rounded-full uppercase tracking-wider">{meta.unit}</span>
-      </div>
+    <div className="bg-gray-900 border border-gray-800 rounded-3xl p-5 md:p-6 shadow-xl relative overflow-hidden flex flex-col justify-between">
+      {/* Accent color blur background */}
+      <div
+        className="absolute -top-12 -right-12 w-28 h-28 rounded-full blur-3xl pointer-events-none"
+        style={{ backgroundColor: meta.accent, opacity: 0.08 }}
+      />
 
-      <div className="bg-gray-950/40 border border-gray-800/60 rounded-xl p-3 mb-3">
-        <Chart data={data} color={color} forecast={forecast} target={meta.target} />
-      </div>
-
-      <div className="mb-4">
-        <ForecastBadge forecast={forecast} meta={meta} />
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-        <input type="date" value={date} onChange={e => setDate(e.target.value)}
-          className="bg-gray-950 border border-gray-700/60 px-3 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
-        <input type="number" step="0.01" placeholder={meta.unit} value={value}
-          onChange={e => setValue(e.target.value)}
-          className="bg-gray-950 border border-gray-700/60 px-3 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" />
-        <input placeholder="note (optional)" value={note} onChange={e => setNote(e.target.value)}
-          className="bg-gray-950 border border-gray-700/60 px-3 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-white col-span-1" />
-        <button onClick={add} className="bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-bold text-white transition-all">Add</button>
-      </div>
-
-      {data.length > 0 && (
-        <details className="mt-4 group border-t border-gray-800/60 pt-3">
-          <summary className="text-xs text-gray-400 cursor-pointer select-none font-bold uppercase tracking-wider hover:text-white transition-colors flex items-center justify-between">
-            <span>View History ({data.length})</span>
-            <span className="text-gray-500 group-open:rotate-180 transition-transform">▼</span>
-          </summary>
-          <ul className="mt-3 text-xs space-y-2 max-h-40 overflow-y-auto pr-1">
-            {[...data].sort((a,b) => b.date.localeCompare(a.date)).map((p, i) => (
-              <li key={i} className="flex justify-between items-center bg-gray-950/40 border border-gray-800/40 rounded-lg px-3 py-2">
-                <span className="text-gray-300">
-                  <span className="text-gray-500 font-mono mr-2">{p.date}</span>
-                  <strong className="text-white font-mono">{p.value}</strong> {meta.unit}
-                  {p.note && <span className="text-gray-400 italic ml-2">— {p.note}</span>}
-                </span>
-                <button onClick={() => remove(data.indexOf(p))} className="text-red-400 hover:text-red-300 font-bold px-1 text-sm">✕</button>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </div>
-  );
-}
-
-type Suggestion = {
-  id: string;
-  title: string;
-  description: string;
-  source?: string;
-  category?: string;
-  action?: string;
-  status: 'pending' | 'accepted' | 'rejected';
-  created_at: string;
-};
-
-const CAT_COLOR: Record<string, { border: string; bg: string; text: string }> = {
-  run: { border: 'border-blue-500', bg: 'bg-blue-500/10', text: 'text-blue-400' },
-  ruck: { border: 'border-amber-500', bg: 'bg-amber-500/10', text: 'text-amber-400' },
-  strength: { border: 'border-emerald-500', bg: 'bg-emerald-500/10', text: 'text-emerald-400' },
-  nutrition: { border: 'border-purple-500', bg: 'bg-purple-500/10', text: 'text-purple-400' },
-  recovery: { border: 'border-cyan-500', bg: 'bg-cyan-500/10', text: 'text-cyan-400' },
-  other: { border: 'border-gray-500', bg: 'bg-gray-500/10', text: 'text-gray-400' },
-};
-
-function SuggestionsPanel() {
-  const [items, setItems] = useState<Suggestion[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<string | null>(null);
-
-  const refresh = () => {
-    setLoading(true);
-    fetch('/api/suggestions?status=pending')
-      .then(r => r.json())
-      .then(d => setItems(Array.isArray(d.suggestions) ? d.suggestions : []))
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(refresh, []);
-
-  const decide = async (id: string, action: 'approve' | 'reject') => {
-    setBusy(id);
-    try {
-      await fetch('/api/suggestions', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, action }),
-      });
-      setItems(prev => prev.filter(s => s.id !== id));
-    } catch {
-      // leave it in place on failure
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  if (loading) return null;
-  if (!items.length) return null;
-
-  return (
-    <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-5 mb-8 border border-purple-500/20 shadow-xl shadow-purple-500/5 animate-fade-in">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-          <span>🔬 Suggested Changes</span>
-          <span className="text-xs bg-purple-500/20 text-purple-400 font-semibold px-2.5 py-0.5 rounded-full">
-            {items.length} suggestions
-          </span>
-        </h2>
-        <button onClick={refresh} className="text-xs text-gray-400 hover:text-white transition-colors bg-gray-800 px-3 py-1.5 rounded-xl font-bold">↻ Refresh</button>
-      </div>
-      <p className="text-xs text-gray-400 mb-4">Research findings worth folding into the program. Approve to keep, dismiss to drop.</p>
-      <div className="space-y-4">
-        {items.map((s, i) => {
-          const colors = CAT_COLOR[s.category || 'other'] || CAT_COLOR.other;
-          return (
-            <div key={s.id}
-              className={`bg-gray-950/60 rounded-2xl p-4 border-l-4 ${colors.border} transition-all duration-300 hover:scale-[1.01] animate-slide-in-left`}
-              style={{ animationDelay: `${i * 100}ms` }}
+      <div>
+        <div className="flex justify-between items-start gap-4 mb-4">
+          <div className="flex items-center gap-3">
+            <div
+              className="p-2.5 rounded-xl border flex items-center justify-center shrink-0"
+              style={{ color: meta.accent, borderColor: `${meta.accent}30`, backgroundColor: meta.bgAccent }}
             >
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <div className="min-w-0">
-                  <h3 className="text-base font-bold text-white">{s.title}</h3>
-                  {s.category && (
-                    <span className={`inline-block text-[9px] uppercase font-bold tracking-wider mt-1 px-2 py-0.5 rounded ${colors.bg} ${colors.text}`}>
-                      {s.category}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-line mb-3">{s.description}</p>
-              {s.action && <p className="text-xs text-gray-400 bg-gray-900/50 p-2.5 rounded-lg border border-gray-800/40"><strong>Change:</strong> {s.action}</p>}
-              {s.source && <p className="text-[11px] text-gray-500 mt-2 italic">Source: {s.source}</p>}
-              <div className="flex gap-2.5 mt-4">
-                <button disabled={busy === s.id} onClick={() => decide(s.id, 'approve')}
-                  className="bg-green-600 hover:bg-green-500 text-white font-bold disabled:opacity-40 rounded-xl px-4 py-2 text-xs transition-all">Approve</button>
-                <button disabled={busy === s.id} onClick={() => decide(s.id, 'reject')}
-                  className="bg-gray-800 hover:bg-gray-750 text-gray-300 font-bold disabled:opacity-40 rounded-xl px-4 py-2 text-xs transition-all">Dismiss</button>
-              </div>
+              <IconComp className="w-5 h-5" />
             </div>
-          );
-        })}
+            <div>
+              <h3 className="font-bold font-display text-white text-base md:text-lg leading-none">{meta.label}</h3>
+              <p className="text-[10px] font-mono text-gray-500 mt-1 uppercase tracking-wider">{meta.hint}</p>
+            </div>
+          </div>
+          <span className="text-xs font-mono text-gray-500 px-2 py-0.5 bg-gray-950 border border-gray-850 rounded">
+            {meta.unit}
+          </span>
+        </div>
+
+        {/* Elite Standard Indicator */}
+        <div className="grid grid-cols-2 gap-2 text-[10px] font-mono bg-gray-950 px-3 py-2 rounded-xl border border-gray-850/80 mb-4">
+          <div>
+            <span className="text-gray-500 block uppercase">Min Passing</span>
+            <span className="text-gray-300 font-bold">{meta.target}</span>
+          </div>
+          <div className="border-l border-gray-850 pl-3">
+            <span className="text-amber-500/80 block uppercase">Elite Candidate</span>
+            <span className="text-amber-400 font-bold">{meta.eliteTarget}</span>
+          </div>
+        </div>
+
+        {/* Recharts chart */}
+        <Chart data={data} color={meta.accent} unit={meta.unit} />
       </div>
-    </div>
-  );
-}
 
-function CorrelationInsight({ store }: { store: MetricsStore }) {
-  // Correlate bodyweight vs ruck pace on overlapping dates
-  const bw = store.bodyWeight, ruck = store.ruckPace;
-  const pairs = useMemo(() => {
-    const byDate = new Map(bw.map(p => [p.date, p.value]));
-    const out: { bw: number; ruck: number }[] = [];
-    ruck.forEach(p => { const w = byDate.get(p.date); if (w != null) out.push({ bw: w, ruck: p.value }); });
-    return out;
-  }, [bw, ruck]);
+      <div className="mt-5 space-y-4 pt-4 border-t border-gray-850/80">
+        {/* Metric Form Fields */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="col-span-2">
+            <label className="text-[10px] font-mono text-gray-500 uppercase block mb-1">Date</label>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              className="w-full bg-gray-950 border border-gray-850 text-gray-100 px-3 py-1.5 rounded-xl text-xs font-mono focus:border-emerald-500/40 focus:outline-none transition-colors"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-mono text-gray-500 uppercase block mb-1">Value ({meta.unit})</label>
+            <input
+              type="number"
+              step="0.01"
+              placeholder={meta.unit}
+              value={value}
+              onChange={e => setValue(e.target.value)}
+              className="w-full bg-gray-950 border border-gray-850 text-gray-100 px-3 py-1.5 rounded-xl text-xs font-mono focus:border-emerald-500/40 focus:outline-none transition-colors"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-mono text-gray-500 uppercase block mb-1">Assessment note</label>
+            <input
+              placeholder="e.g. wet track"
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              className="w-full bg-gray-950 border border-gray-850 text-gray-100 px-3 py-1.5 rounded-xl text-xs focus:border-emerald-500/40 focus:outline-none transition-colors"
+            />
+          </div>
+        </div>
 
-  if (pairs.length < 3) return null;
-  const r = correlate(pairs.map(p => p.bw), pairs.map(p => p.ruck));
-  if (Math.abs(r) < 0.3) return null;
+        <button
+          onClick={add}
+          className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-mono font-bold transition-all hover:brightness-115 active:scale-98 cursor-pointer text-white shadow-md shadow-gray-950/20"
+          style={{ backgroundColor: meta.accent }}
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>Add Log Entry</span>
+        </button>
 
-  return (
-    <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-5 border border-cyan-500/20 shadow-xl">
-      <h3 className="text-sm font-bold text-cyan-300 uppercase tracking-wider mb-1">Cross-Metric Correlation</h3>
-      <p className="text-sm text-gray-300">
-        Bodyweight and ruck pace show a {r > 0 ? 'positive' : 'negative'} correlation (r = {r.toFixed(2)}) across {pairs.length} overlapping days —
-        {r > 0
-          ? ' heavier weigh-ins have tracked with slower ruck paces.'
-          : ' lighter weigh-ins have tracked with faster ruck paces.'}
-      </p>
+        {/* History Timelines */}
+        {data.length > 0 && (
+          <details className="group mt-2">
+            <summary className="text-xs font-mono text-gray-400 group-open:text-white cursor-pointer select-none py-1 flex items-center justify-between">
+              <span>View Data Feed ({data.length})</span>
+              <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90 text-gray-500" />
+            </summary>
+            
+            <ul className="mt-3 space-y-2 max-h-48 overflow-y-auto pr-1.5 scrollbar-thin">
+              {[...data]
+                .sort((a, b) => b.date.localeCompare(a.date))
+                .map((p, i) => (
+                  <li
+                    key={i}
+                    className="flex justify-between items-center bg-gray-950 border border-gray-850/80 p-2.5 rounded-xl text-xs font-mono"
+                  >
+                    <div className="min-w-0 pr-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400 font-bold">{p.date}</span>
+                        <span className="text-gray-500">|</span>
+                        <span className="text-white font-bold">{p.value}</span>
+                        <span className="text-gray-400 text-[10px]">{meta.unit}</span>
+                      </div>
+                      {p.note && (
+                        <p className="text-[10px] text-gray-500 italic mt-0.5 truncate">
+                          &quot;{p.note}&quot;
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => remove(p)}
+                      className="text-gray-500 hover:text-red-400 p-1.5 rounded-lg hover:bg-gray-900 transition-colors cursor-pointer shrink-0"
+                      title="Delete Record"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </li>
+                ))}
+            </ul>
+          </details>
+        )}
+      </div>
     </div>
   );
 }
@@ -310,7 +328,7 @@ function CorrelationInsight({ store }: { store: MetricsStore }) {
 export default function ProgressPage() {
   const [store, setStore] = useState<MetricsStore>(empty);
   useEffect(() => {
-    void pullSfprepSync().finally(() => setStore(load()));
+    setStore(load());
   }, []);
 
   const summary = useMemo(() => {
@@ -323,79 +341,65 @@ export default function ProgressPage() {
     };
   }, [store]);
 
-  const programStart = useMemo(() => programStartDate(store), [store]);
+  const cardsInfo = [
+    { label: 'Ruck', val: summary.ruckPace, unit: 'min/mi', color: 'text-amber-400', icon: Compass, bg: 'bg-amber-500/5 border-amber-500/10' },
+    { label: '2-Mile', val: summary.runPace, unit: 'min', color: 'text-blue-400', icon: Activity, bg: 'bg-blue-500/5 border-blue-500/10' },
+    { label: 'PT Test', val: summary.ptScore, unit: 'pts', color: 'text-emerald-400', icon: Award, bg: 'bg-emerald-500/5 border-emerald-500/10' },
+    { label: 'Weight', val: summary.bodyWeight, unit: 'lb', color: 'text-red-400', icon: Scale, bg: 'bg-red-500/5 border-red-500/10' },
+  ];
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Animated background gradient */}
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/20 via-gray-950 to-purple-950/20 pointer-events-none" />
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: 'easeOut' }}
+      className="space-y-6"
+    >
+      <Nav />
 
-      {/* Hero Section */}
-      <div className="relative bg-gradient-to-b from-blue-950/40 to-transparent backdrop-blur-sm pb-8">
-        <div className="max-w-7xl mx-auto p-4">
-          <div className="mb-6 animate-fade-in">
-            <h1 className="text-5xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-400 bg-clip-text text-transparent">
-              Progress Tracking
-            </h1>
-            <p className="text-gray-400 mt-2 text-lg">
-              Log, monitor, and project the four critical readiness metrics.
-            </p>
-          </div>
-          <Nav />
-        </div>
+      {/* Hero Header */}
+      <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5">
+        <span className="font-mono text-xs text-gray-500 tracking-widest uppercase">PERFORMANCE TRACKING</span>
+        <h2 className="text-xl md:text-2xl font-bold font-display mt-0.5 text-white">
+          Tactical Recon & Metrics Logs
+        </h2>
+        <p className="text-gray-400 text-sm mt-1">
+          Review physical benchmarks against Special Forces selection targets.
+        </p>
       </div>
 
-      <div className="max-w-7xl mx-auto p-4 -mt-6 relative z-10 space-y-8">
-        <SuggestionsPanel />
-
-        {/* Diagnostic KPI boxes */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            { label: 'Latest Ruck', value: summary.ruckPace, unit: 'min/mi', gradient: 'from-amber-500/10 to-orange-500/10 border-amber-500/20', text: 'text-amber-400' },
-            { label: '2-Mile PR', value: summary.runPace, unit: 'min', gradient: 'from-blue-500/10 to-cyan-500/10 border-blue-500/20', text: 'text-blue-400' },
-            { label: 'PT Test Score', value: summary.ptScore, unit: 'pts', gradient: 'from-emerald-500/10 to-teal-500/10 border-emerald-500/20', text: 'text-emerald-400' },
-            { label: 'Latest Weight', value: summary.bodyWeight, unit: 'lbs', gradient: 'from-red-500/10 to-pink-500/10 border-red-500/20', text: 'text-red-400' }
-          ].map((kpi, i) => (
-            <div key={kpi.label}
-              className={`bg-gradient-to-br ${kpi.gradient} backdrop-blur-md rounded-2xl p-5 border text-center transition-all duration-300 hover:scale-105 shadow-lg shadow-black/25 animate-scale-in`}
-              style={{ animationDelay: `${i * 100}ms` }}
+      {/* Bento Stats Summary */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {cardsInfo.map((card, idx) => {
+          const IconComponent = card.icon;
+          return (
+            <div
+              key={idx}
+              className={`border p-4 rounded-2xl flex flex-col justify-between h-28 relative overflow-hidden bg-gray-900/40 border-gray-850/80 shadow-md`}
             >
-              <div className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-2">{kpi.label}</div>
-              <div className={`text-3xl font-black ${kpi.text} font-mono`}>
-                {kpi.value ?? '—'} <span className="text-xs text-gray-500">{kpi.unit}</span>
+              <div className="flex justify-between items-start">
+                <span className="font-mono text-xs text-gray-500 uppercase tracking-wider">{card.label}</span>
+                <IconComponent className={`w-4 h-4 ${card.color} opacity-60`} />
+              </div>
+              <div className="mt-2 flex items-baseline gap-1">
+                <span className={`text-2xl md:text-3xl font-extrabold font-mono tracking-tight text-white`}>
+                  {card.val ?? '—'}
+                </span>
+                {card.val && <span className="text-xs font-mono text-gray-500">{card.unit}</span>}
               </div>
             </div>
-          ))}
-        </div>
-
-        <CorrelationInsight store={store} />
-
-        {/* Charts and Logging Grid */}
-        <div className="grid gap-6 md:grid-cols-2">
-          <MetricCard metric="ruckPace"   color="#f59e0b" store={store} setStore={setStore} programStart={programStart} />
-          <MetricCard metric="runPace"    color="#3b82f6" store={store} setStore={setStore} programStart={programStart} />
-          <MetricCard metric="ptScore"    color="#10b981" store={store} setStore={setStore} programStart={programStart} />
-          <MetricCard metric="bodyWeight" color="#ef4444" store={store} setStore={setStore} programStart={programStart} />
-        </div>
+          );
+        })}
       </div>
 
-      {/* Global CSS animations */}
-      <style jsx global>{`
-        @keyframes fade-in {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes scale-in {
-          from { opacity: 0; transform: scale(0.95); }
-          to { opacity: 1; transform: scale(1); }
-        }
-        .animate-fade-in {
-          animation: fade-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        .animate-scale-in {
-          animation: scale-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-      `}</style>
-    </div>
+      {/* Interactive Charts Panel */}
+      <div className="grid gap-6 md:grid-cols-2">
+        <MetricCard metric="ruckPace" store={store} setStore={setStore} />
+        <MetricCard metric="runPace" store={store} setStore={setStore} />
+        <MetricCard metric="ptScore" store={store} setStore={setStore} />
+        <MetricCard metric="bodyWeight" store={store} setStore={setStore} />
+      </div>
+    </motion.div>
   );
 }
+

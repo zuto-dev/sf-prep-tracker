@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Nav } from '../components/Nav';
+import { motion, AnimatePresence } from 'motion/react';
 import type { Move } from '../lib/mobility-types';
 import {
   buildTailoredMobilitySession,
@@ -226,36 +227,42 @@ export default function MobilityPage() {
   const modalMove = modalIdx !== null ? MOVES[modalIdx] : null;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/20 via-gray-950 to-purple-950/20 pointer-events-none" />
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: 'easeOut' }}
+      className="space-y-6"
+    >
+      <Nav />
 
-      <div className="relative bg-gradient-to-b from-blue-950/40 to-transparent backdrop-blur-sm pb-8">
-        <div className="max-w-6xl mx-auto p-4">
-          <div className="mb-6 animate-fade-in">
-            <h1 className="text-5xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-400 bg-clip-text text-transparent">
-              Daily Mobility
-            </h1>
-            <p className="text-gray-400 mt-2 text-lg">
-              ~12 min · body weight · tissue quality that survives 18 months of ramping load.
-            </p>
-          </div>
-          <Nav />
+      {/* Main Stats Banner */}
+      <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <span className="font-mono text-xs text-gray-500 tracking-widest uppercase">MOBILITY LAB</span>
+          <h2 className="text-xl md:text-2xl font-bold font-display mt-0.5 text-white">
+            Daily Mobility Protocol
+          </h2>
+          <p className="text-gray-400 text-sm mt-1">
+            ~12 min · body weight · tissue quality that survives 18 months of ramping load.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap sm:text-right shrink-0">
+          <span className="text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2.5 py-0.5 rounded-full border border-emerald-500/25">
+            {done}/{MOVES.length} Complete Today
+          </span>
+          {streak > 0 && (
+            <span className="text-xs bg-amber-500/10 text-amber-400 font-semibold px-2.5 py-0.5 rounded-full border border-amber-500/25">
+              🔥 {streak}d Streak
+            </span>
+          )}
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto p-4 -mt-6 relative z-10 space-y-6">
+      <div className="space-y-6">
         {/* Info card */}
-        <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-5 border border-gray-800/50 shadow-xl text-sm leading-relaxed text-gray-300">
-          <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2 flex-wrap">
+        <div className="bg-gray-900/40 rounded-2xl p-5 border border-gray-850 shadow-xl text-sm leading-relaxed text-gray-300">
+          <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2">
             <span>💡 Why this exists</span>
-            <span className="text-xs bg-emerald-500/20 text-emerald-400 font-semibold px-2.5 py-0.5 rounded-full">
-              {done}/{MOVES.length} complete today
-            </span>
-            {streak > 0 && (
-              <span className="text-xs bg-amber-500/20 text-amber-400 font-semibold px-2.5 py-0.5 rounded-full">
-                🔥 {streak}d streak
-              </span>
-            )}
           </h3>
           The main sessions have short pre-workout warm-ups (5 min).
           This is separate — a daily block for the areas tactical athletes actually lose: hips (rucking), ankles (running/land nav),
@@ -476,6 +483,6 @@ export default function MobilityPage() {
           animation: fade-in 0.3s ease-out forwards;
         }
       `}</style>
-    </div>
+    </motion.div>
   );
 }

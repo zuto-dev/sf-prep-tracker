@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Nav } from '../components/Nav';
+import { motion, AnimatePresence } from 'motion/react';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 import {
   SOF_PROFILES,
@@ -101,26 +102,35 @@ export default function StandardsPage() {
   }, [profile, store.history, store.activeProfile]);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Animated background gradient */}
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/20 via-gray-950 to-purple-950/20 pointer-events-none" />
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: 'easeOut' }}
+      className="space-y-6"
+    >
+      <Nav />
 
-      {/* Hero Section */}
-      <div className="relative bg-gradient-to-b from-blue-950/40 to-transparent backdrop-blur-sm pb-8">
-        <div className="max-w-5xl mx-auto p-4">
-          <div className="mb-6 animate-fade-in">
-            <h1 className="text-5xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-400 bg-clip-text text-transparent">
-              Military Standards
-            </h1>
-            <p className="text-gray-400 mt-2 text-base">
-              Multi-branch SOF threshold engine. Switch profiles, log a value, and every gauge redraws.
-            </p>
-          </div>
-          <Nav />
+      {/* Main Stats Banner */}
+      <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <span className="font-mono text-xs text-gray-500 tracking-widest uppercase">STANDARDS & BENCHMARKS</span>
+          <h2 className="text-xl md:text-2xl font-bold font-display mt-0.5 text-white">
+            Military SOF Standards
+          </h2>
+          <p className="text-gray-400 text-sm mt-1">
+            Multi-branch SOF threshold engine. Switch profiles, log a value, and every gauge redraws.
+          </p>
+        </div>
+        <div className="text-left sm:text-right shrink-0">
+          <span className="text-[10px] font-mono text-gray-500 block uppercase tracking-wider">ACTIVE SYSTEM</span>
+          <span className="text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 mt-1 border border-emerald-500/25 capitalize font-mono">
+            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+            {profile.shortLabel}
+          </span>
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto p-4 -mt-6 relative z-10 space-y-8">
+      <div className="space-y-6">
         {/* Dynamic SOF Profile Switcher */}
         <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-4 border border-gray-800/50 shadow-xl">
           <div className="flex items-center justify-between mb-3">
@@ -305,7 +315,7 @@ export default function StandardsPage() {
           animation: fade-in 0.6s ease-out forwards;
         }
       `}</style>
-    </div>
+    </motion.div>
   );
 }
 
