@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Exercise } from './Exercise';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 import { deriveWorkoutHistory, deriveDayVolume, calculateAdaptiveLoad, acwrZone, acwrZoneColor } from '../lib/adaptive-engine';
+import { getProgramPosition, latestTwoMileSeconds, resolveRuckReadiness } from '../lib/program-state';
 import type { DayWorkout } from '../data/workouts';
 
 interface WorkoutDayProps {
@@ -144,14 +145,52 @@ export function WorkoutDay({ day, workout, logKeyPrefix }: WorkoutDayProps) {
             )}
             {workout.exercises.map((ex, idx) => {
               const id = ex.id ?? `${day}-${idx}`;
+              const isRuck = ex.name.toLowerCase().includes('ruck');
+              
+              let ruckReadiness = null;
+              if (isRuck) {
+                // Get current program position
+                const position = getProgramPosition(new Date());
+                const globalWeek = position.globalWeek;
+                
+                // Get latest 2-mile time
+                const standardsRaw = localStorage.getItem('sfprep:standards');
+                const progressRaw = localStorage.getItem('sfprep:progress');
+                const standards = standardsRaw ? JSON.parse(standardsRaw) : null;
+                const progress = progressRaw ? JSON.parse(progressRaw) : null;
+                const twoMileSeconds = latestTwoMileSeconds(standards, progress);
+                
+                // Check readiness
+                const readiness = resolveRuckReadiness(globalWeek, twoMileSeconds);
+                if (readiness.status === 'blocked') {
+                  ruckReadiness = {
+                    canRuck: false,
+                    message: `Ruck blocked until 2-mile ≤ 16:00. Current: ${twoMileSeconds ? `${Math.floor(twoMileSeconds / 60)}:${(twoMileSeconds % 60).toString().padStart(2, '0')}` : 'not logged'}. Substitute: ${readiness.substitute}`
+                  };
+                }
+              }
+              
               return (
-                <Exercise
-                  key={id}
-                  exercise={ex}
-                  logKeyBase={`${logKeyPrefix}:${day}:${id}`}
-                  isCompleted={completed.has(id)}
-                  onToggleComplete={() => toggle(id)}
-                />
+                <div key={id}>
+                  {isRuck && ruckReadiness && !ruckReadiness.canRuck && (
+                    <div className="rounded-xl p-3 mb-3 border text-xs bg-red-500/10 border-red-500/30 text-red-400">
+                      <div className="flex items-center gap-2 mb-1">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <span className="font-bold uppercase tracking-wider">Ruck Readiness Gate</span>
+                      </div>
+                      <p>{ruckReadiness.message}</p>
+                    </div>
+                  )}
+                  <Exercise
+                    key={id}
+                    exercise={ex}
+                    logKeyBase={`${logKeyPrefix}:${day}:${id}`}
+                    isCompleted={completed.has(id)}
+                    onToggleComplete={() => toggle(id)}
+                  />
+                </div>
               );
             })}
           </div>
