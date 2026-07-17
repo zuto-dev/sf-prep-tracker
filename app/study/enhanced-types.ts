@@ -3,6 +3,12 @@
 import { ARQuestion } from './ar-question-bank';
 import { SpacedRepetitionState } from './spaced-repetition';
 
+// Test format governs the per-question timer benchmark. CAT-ASVAB (at MEPS)
+// gives 3:42/question; MET (paper at satellite sites) gives 72s/question.
+// Training against the wrong clock is a real failure mode; pin this early.
+export type TestFormat = 'cat' | 'met';
+export const BENCHMARK_SECONDS: Record<TestFormat, number> = { cat: 222, met: 72 };
+
 // Enhanced study store with new fields
 export interface EnhancedStudyStore {
   // Diagnostic scores
@@ -10,6 +16,10 @@ export interface EnhancedStudyStore {
   mkDiag?: number;
   wkDiag?: number; // NEW: Word Knowledge diagnostic
   pcDiag?: number; // NEW: Paragraph Comprehension diagnostic
+
+  // Test configuration
+  testDate?: string;        // ISO date of the scheduled ASVAB
+  testFormat?: TestFormat;  // Defaults to 'cat' if unset
   
   // Session tracking
   sessionState: Record<string, 'idle' | 'in-progress' | 'complete'>;
@@ -64,8 +74,12 @@ export interface ReviewResult {
 // Question timing data
 export interface QuestionTimingData {
   questionId: string;
+  // Recorded at write-time so downstream aggregations don't need to look
+  // the question back up (generated questions may not exist by then).
+  missType?: string;
+  topic?: string;      // ARTopicSlug — for per-topic mastery on the curriculum grid
   startTime: number; // timestamp
-  endTime: number; // timestamp
+  endTime: number;   // timestamp
   timeSeconds: number;
   correct: boolean;
   sessionId: string;
