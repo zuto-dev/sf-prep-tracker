@@ -38,7 +38,7 @@ test('ruck readiness clears a scheduled ruck at a 16-minute 2-mile', () => {
   });
 });
 
-test('latest two-mile result prefers standards history and falls back to progress pace', () => {
+test('latest two-mile result comes only from standards history, never from a progress-only pace value', () => {
   assert.equal(latestTwoMileSeconds({
     history: {
       twoMileRun: [
@@ -48,5 +48,17 @@ test('latest two-mile result prefers standards history and falls back to progres
     },
   }, { runPace: [{ date: '2026-07-15', value: 14.5 }] }), 955);
 
-  assert.equal(latestTwoMileSeconds(null, { runPace: [{ date: '2026-07-15', value: 15.75 }] }), 945);
+  // No standards history at all: must return null, NOT derive a value from progress.runPace.
+  assert.equal(latestTwoMileSeconds(null, { runPace: [{ date: '2026-07-15', value: 15.75 }] }), null);
+  assert.equal(latestTwoMileSeconds(undefined, { runPace: [{ date: '2026-07-15', value: 1 }] }), null);
+});
+
+test('resolveRuckReadiness never clears a scheduled ruck when only a progress-only pace produced a null two-mile time', () => {
+  const twoMileSeconds = latestTwoMileSeconds(null, { runPace: [{ date: '2026-07-15', value: 1 }] });
+  assert.deepEqual(resolveRuckReadiness(7, twoMileSeconds), {
+    scheduled: true,
+    status: 'blocked',
+    gateSeconds: 960,
+    substitute: 'Easy Long Walk / Recovery',
+  });
 });

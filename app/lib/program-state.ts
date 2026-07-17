@@ -53,12 +53,16 @@ function newestValid<T extends { date: string; value: number }>(entries: T[] | u
     .at(-1) ?? null;
 }
 
-export function latestTwoMileSeconds(standards: StandardsSnapshot, progress: ProgressSnapshot): number | null {
+/**
+ * Only `standards.history.twoMileRun` is a valid canonical two-mile source.
+ * There is intentionally NO fallback to `progress.runPace` — that field is a
+ * generic training-pace log, not a certified two-mile time, and using it to
+ * clear the ruck gate was an ambiguity bug. Returns null when no valid
+ * standards entry exists; callers must not substitute a progress-only value.
+ */
+export function latestTwoMileSeconds(standards: StandardsSnapshot, _progress: ProgressSnapshot): number | null {
   const standardsPoint = newestValid(standards?.history?.twoMileRun);
-  if (standardsPoint) return standardsPoint.value;
-
-  const progressPoint = newestValid(progress?.runPace);
-  return progressPoint ? progressPoint.value * 60 : null;
+  return standardsPoint ? standardsPoint.value : null;
 }
 
 export function resolveRuckReadiness(globalWeek: number, twoMileSeconds: number | null): RuckReadiness {
