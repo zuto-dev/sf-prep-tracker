@@ -25,12 +25,24 @@ const daysSince = (isoDate: string): number => {
 export const calculatePriority = (perf: QuestionPerformance): number => {
   const accuracy = perf.totalAttempts > 0 ? perf.correctCount / perf.totalAttempts : 0;
   const daysSinceReview = daysSince(perf.lastAttempted);
-  const recencyWeight = Math.log(daysSinceReview + Math.E);
   
-  // Higher priority for lower accuracy and longer time since review
-  // Box also affects priority (lower boxes = higher priority)
+  // Urgency Metric with accuracy smoothing coefficient (epsilon = 0.1)
+  const urgencyMetric = Math.max(0.1, 1.1 - accuracy);
+  
+  // Leitner box intervals: Box 1 = 1d, Box 2 = 3d, Box 3 = 7d, Box 4 = 14d, Box 5 = 30d
+  const intervals = { 1: 1, 2: 3, 3: 7, 4: 14, 5: 30 };
+  const intervalDays = intervals[perf.currentBox as keyof typeof intervals] || 1;
+  
+  // Days Past Due calculation
+  const daysPastDue = daysSinceReview - intervalDays;
+  
+  // Recency Weight calculation: ln(max(0, daysPastDue) + 1) + 1
+  const recencyWeight = Math.log(Math.max(0, daysPastDue) + 1) + 1;
+  
+  // Box multiplier
   const boxMultiplier = (6 - perf.currentBox) / 5;
-  return (1 - accuracy) * recencyWeight * boxMultiplier;
+  
+  return urgencyMetric * recencyWeight * boxMultiplier;
 };
 
 // Update performance after answering a question

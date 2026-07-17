@@ -115,7 +115,7 @@ export const TRACK_GT_REQUIREMENTS = {
   'C': { minGT: 100, description: 'Support roles' }
 };
 
-// Estimate weeks needed based on non-linear ceiling compression
+// Estimate weeks needed based on non-linear timeline velocity formula
 export const estimateWeeksToTarget = (
   currentGT: number,
   targetGT: number,
@@ -124,33 +124,25 @@ export const estimateWeeksToTarget = (
   const pointsNeeded = targetGT - currentGT;
   if (pointsNeeded <= 0) return 0;
   
-  // Non-linear ceiling compression simulation
-  // Proximity to 99th percentile exponentially slows down standard score gain velocity
-  let currentP = currentARPercentile;
-  let weeks = 0;
-  let estimatedGT = currentGT;
-  const MAX_WEEKS = 24;
-
-  const veStandardScore = currentGT - percentileToStandardScore(currentARPercentile);
-
-  while (estimatedGT < targetGT && weeks < MAX_WEEKS) {
-    weeks++;
-    // Gain rate decay modeling
-    let weeklyGain = 3.5;
-    if (currentP >= 90) {
-      weeklyGain = 0.4;
-    } else if (currentP >= 80) {
-      weeklyGain = 0.9;
-    } else if (currentP >= 65) {
-      weeklyGain = 1.6;
-    } else if (currentP >= 45) {
-      weeklyGain = 2.5;
-    }
-    
-    currentP = Math.min(99, currentP + weeklyGain);
-    const arStandardScore = percentileToStandardScore(currentP);
-    estimatedGT = veStandardScore + arStandardScore;
+  // Base track weeks based on diagnostic score
+  let baseTrackWeeks = 12;
+  if (currentARPercentile >= 60) {
+    baseTrackWeeks = 8;
+  } else if (currentARPercentile >= 45) {
+    baseTrackWeeks = 10;
   }
+
+  // Target AR percentile to reach the target GT
+  const targetARPercentile = calculateRequiredARForGT(targetGT, 86, 75);
   
-  return weeks;
+  // Delta AR
+  const deltaAR = targetARPercentile - currentARPercentile;
+  
+  // Ceiling Penalty: 1 / (1 - min(0.99, targetARPercentile / 100))
+  const ceilingPenalty = 1 / (1 - Math.min(0.99, targetARPercentile / 100));
+  
+  // Estimated Weeks: Base Track Weeks + (max(0, deltaAR) * 0.15 * ln(ceilingPenalty))
+  const estimatedWeeks = baseTrackWeeks + (Math.max(0, deltaAR) * 0.15 * Math.log(ceilingPenalty));
+  
+  return Math.ceil(estimatedWeeks);
 };
