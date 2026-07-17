@@ -598,12 +598,12 @@ export default function StudyPage() {
   // Calculate GT scores
   const gtCalc = useMemo(() => {
     if (!store.arDiag) return null;
-    return calculateGTScore({
-      ar: store.arDiag,
-      wk: store.wkDiag,
-      pc: store.pcDiag,
-      mk: store.mkDiag,
-    });
+    return calculateGTScore(
+      store.arDiag,
+      store.wkDiag,
+      store.pcDiag,
+      store.mkDiag,
+    );
   }, [store.arDiag, store.mkDiag, store.wkDiag, store.pcDiag]);
 
   // Test format defaults to CAT (MEPS default). Toggle-visible in the strip.
