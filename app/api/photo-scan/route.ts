@@ -251,13 +251,10 @@ Return ONLY raw JSON. No markdown formatting, no backticks.`;
         ingredients.push('mixed green vegetables');
       }
 
-      // Fallback defaults if no keywords match but prompt exists
       if (kcal === 0) {
-        kcal = 450;
-        p = 25;
-        c = 45;
-        f = 12;
-        ingredients.push('estimated meal components');
+        return NextResponse.json({
+          error: 'The local estimator needs a recognizable meal description. Add the food name and serving details rather than accepting a guessed result.',
+        }, { status: 422 });
       }
 
       let title = prompt;

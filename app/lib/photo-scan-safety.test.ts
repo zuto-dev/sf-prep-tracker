@@ -8,5 +8,6 @@ test('photo scanner never returns random mock meals when vision is unavailable',
 
   assert.equal(route.includes('Fallback to standard mock catalog'), false);
   assert.equal(route.includes('Math.random()'), false);
+  assert.equal(route.includes('kcal = 450'), false);
   assert.equal(route.includes('status: 503'), true);
 });
