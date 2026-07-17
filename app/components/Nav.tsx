@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Dumbbell, TrendingUp, Apple, ShieldAlert, Crosshair, Calendar, Award, BookOpen, Activity, Podcast } from 'lucide-react';
+import { Dumbbell, TrendingUp, Apple, ShieldAlert, Crosshair, Calendar, Award, BookOpen, Activity, Podcast, Map } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 export function Nav() {
@@ -25,6 +25,7 @@ export function Nav() {
     { href: '/nutrition', label: 'Nutrition', icon: Apple },
     { href: '/progress', label: 'Progress', icon: TrendingUp },
     { href: '/standards', label: 'Standards', icon: Award },
+    { href: '/roadmap', label: 'Roadmap', icon: Map },
     { href: '/study', label: 'Study', icon: BookOpen },
     { href: '/mobility', label: 'Mobility', icon: Activity },
     { href: '/pods', label: 'SF Pod', icon: Podcast },
