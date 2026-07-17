@@ -283,47 +283,9 @@ Return ONLY raw JSON. No markdown formatting, no backticks.`;
       });
     }
 
-    // 3. Fallback to mock catalog list if no prompt or key is available
-    const mealTypes = [
-      {
-        detected: 'grilled chicken salad bowl',
-        confidence: 0.92,
-        meal: {
-          name: 'Grilled Chicken Salad Bowl',
-          serving: '1 large bowl',
-          kcal: 480,
-          p: 42,
-          c: 28,
-          f: 18,
-          ingredients: ['grilled chicken breast (6oz)', 'mixed greens', 'cherry tomatoes', 'cucumber', 'avocado (1/2)', 'olive oil dressing', 'feta cheese']
-        },
-        notes: 'High protein, moderate carb meal. Good post-workout option.'
-      },
-      {
-        detected: 'steak with sweet potato',
-        confidence: 0.94,
-        meal: {
-          name: 'Steak & Sweet Potato',
-          serving: '1 plate',
-          kcal: 650,
-          p: 48,
-          c: 45,
-          f: 28,
-          ingredients: ['lean sirloin steak (8oz)', 'sweet potato (medium)', 'steamed broccoli', 'butter (1 tbsp)']
-        },
-        notes: 'Balanced macros, excellent for strength training days.'
-      }
-    ];
-
-    const selectedMeal = mealTypes[Math.floor(Math.random() * mealTypes.length)];
-
     return NextResponse.json({
-      success: true,
-      ...selectedMeal,
-      message: `I see ${selectedMeal.detected}. Based on the portions, here's my estimate:`,
-      save_meal: selectedMeal.meal,
-      api_note: 'Fallback to standard mock catalog.'
-    });
+      error: 'Live image analysis is unavailable. Add a meal description to use the local estimate instead.',
+    }, { status: 503 });
 
   } catch (error) {
     console.error('Photo analysis error:', error);

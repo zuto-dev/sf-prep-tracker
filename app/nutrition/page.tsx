@@ -473,6 +473,7 @@ export default function NutritionPage() {
   const [scanPreview, setScanPreview] = useState<string | null>(null);
   const [scanPrompt, setScanPrompt] = useState('');
   const [scanResult, setScanResult] = useState<any | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
 
   const handleScanFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -489,20 +490,22 @@ export default function NutritionPage() {
     if (!scanPreview) return;
     setIsScanning(true);
     setScanResult(null);
+    setScanError(null);
     try {
       const res = await fetch('/api/photo-scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: scanPreview, prompt: scanPrompt })
       });
-      if (res.ok) {
-        const data = await res.json();
+      const data = await res.json();
+      if (res.ok && data.success) {
         setScanResult(data);
       } else {
-        console.error('Scan failed');
+        setScanError(data.error || 'Image analysis failed. Try again with a meal description.');
       }
     } catch (e) {
       console.error(e);
+      setScanError('Could not reach the image analysis service. Try again with a meal description.');
     } finally {
       setIsScanning(false);
     }
@@ -939,7 +942,7 @@ export default function NutritionPage() {
                       Analyze Plate Macros
                     </button>
                     <button
-                      onClick={() => { setScanPreview(null); setScanResult(null); setScanPrompt(''); }}
+                      onClick={() => { setScanPreview(null); setScanResult(null); setScanError(null); setScanPrompt(''); }}
                       className="px-4 py-3 bg-gray-850 hover:bg-gray-800 border border-gray-750 text-gray-400 hover:text-white rounded-xl font-mono text-xs transition"
                     >
                       Reset
@@ -1018,6 +1021,12 @@ export default function NutritionPage() {
                       Save Recipe
                     </button>
                   </div>
+                </div>
+              ) : scanError ? (
+                <div className="bg-amber-950/20 border border-amber-500/30 rounded-2xl p-6 text-center text-sm h-full flex flex-col justify-center min-h-[300px]">
+                  <span className="text-2xl block mb-2">⚠️</span>
+                  <p className="font-semibold text-amber-300">No estimate was created</p>
+                  <p className="text-xs text-amber-100/70 mt-2 leading-relaxed">{scanError}</p>
                 </div>
               ) : (
                 <div className="bg-gray-950/20 border border-gray-850 rounded-2xl p-6 text-center text-gray-500 text-sm h-full flex flex-col justify-center min-h-[300px]">
