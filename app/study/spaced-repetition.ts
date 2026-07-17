@@ -25,7 +25,7 @@ const daysSince = (isoDate: string): number => {
 export const calculatePriority = (perf: QuestionPerformance): number => {
   const accuracy = perf.totalAttempts > 0 ? perf.correctCount / perf.totalAttempts : 0;
   const daysSinceReview = daysSince(perf.lastAttempted);
-  const recencyWeight = Math.log(daysSinceReview + 1);
+  const recencyWeight = Math.log(daysSinceReview + Math.E);
   
   // Higher priority for lower accuracy and longer time since review
   // Box also affects priority (lower boxes = higher priority)

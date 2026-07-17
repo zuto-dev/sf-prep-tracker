@@ -3,39 +3,43 @@
 
 import { GTCalculation } from './enhanced-types';
 
-// Convert raw percentage to standard score (mean=50, SD=10)
+// Convert raw percentile to standard score (mean=50, SD=10)
 // Based on normalized ASVAB distribution curves
-const percentileToStandardScore = (percentile: number): number => {
-  // Z-score lookup table for common percentiles
-  const lookup: [number, number][] = [
+export const percentileToStandardScore = (percentile: number): number => {
+  const clamped = Math.max(1, Math.min(99, percentile));
+  
+  const lookupTable: [number, number][] = [
     [99, 73], [95, 66], [90, 63], [85, 60], [80, 58],
     [75, 57], [70, 55], [65, 54], [60, 53], [55, 51],
     [50, 50], [45, 49], [40, 47], [35, 46], [30, 45],
     [25, 43], [20, 42], [15, 40], [10, 37], [5, 34], [1, 27]
   ];
-  
-  // Linear interpolation between points
-  for (let i = 0; i < lookup.length - 1; i++) {
-    const [p1, s1] = lookup[i];
-    const [p2, s2] = lookup[i + 1];
-    
-    if (percentile >= p2 && percentile <= p1) {
-      const ratio = (percentile - p2) / (p1 - p2);
-      return s2 + ratio * (s1 - s2);
+
+  // Exact match optimization
+  const exact = lookupTable.find(([p]) => p === clamped);
+  if (exact) return exact[1];
+
+  // Find bounding intervals
+  let upper = lookupTable[0];
+  let lower = lookupTable[lookupTable.length - 1];
+
+  for (let i = 0; i < lookupTable.length - 1; i++) {
+    if (clamped <= lookupTable[i][0] && clamped >= lookupTable[i+1][0]) {
+      upper = lookupTable[i];
+      lower = lookupTable[i+1];
+      break;
     }
   }
-  
-  // Edge cases
-  if (percentile >= 99) return 73;
-  if (percentile <= 1) return 27;
-  
-  return 50; // Default to mean
+
+  // Linear Interpolation formula: y = y1 + ((x - x1) * (y2 - y1)) / (x2 - x1)
+  const [x1, y1] = upper;
+  const [x2, y2] = lower;
+  return y1 + ((clamped - x1) * (y2 - y1)) / (x2 - x1);
 };
 
 // Calculate VE (Verbal Expression) standard score from WK + PC
-const calculateVEStandardScore = (wkPercentile: number, pcPercentile: number): number => {
-  // VE uses a special formula: 2WK + PC raw scores, then converted
-  // Since we have percentiles, we approximate with weighted average
+export const calculateVEStandardScore = (wkPercentile: number, pcPercentile: number): number => {
+  // VE uses a combined percentile: (2WK + PC) / 3
   const combinedPercentile = (2 * wkPercentile + pcPercentile) / 3;
   return percentileToStandardScore(combinedPercentile);
 };
@@ -47,18 +51,14 @@ export const calculateGTScore = (
   pcPercentile?: number,
   mkPercentile?: number
 ): GTCalculation => {
-  // Default VE scores if not provided (as in current implementation)
   const wk = wkPercentile ?? 86;
   const pc = pcPercentile ?? 75;
   
-  // Calculate standard scores
   const veStandardScore = calculateVEStandardScore(wk, pc);
   const arStandardScore = percentileToStandardScore(arPercentile);
   
-  // GT = VE + AR
   const estimatedGT = Math.round(veStandardScore + arStandardScore);
   
-  // Target check (110 for most special operations)
   const TARGET_GT = 110;
   const meetsTarget = estimatedGT >= TARGET_GT;
   const pointsToTarget = Math.max(0, TARGET_GT - estimatedGT);
@@ -84,20 +84,28 @@ export const calculateRequiredARForGT = (
   const veStandardScore = calculateVEStandardScore(wkPercentile, pcPercentile);
   const requiredARStandardScore = targetGT - veStandardScore;
   
-  // Convert standard score back to percentile
-  // This is approximate inverse of percentileToStandardScore
   if (requiredARStandardScore >= 73) return 99;
   if (requiredARStandardScore <= 27) return 1;
   
-  // Linear search for closest match
-  for (let percentile = 99; percentile >= 1; percentile--) {
-    const ss = percentileToStandardScore(percentile);
-    if (ss <= requiredARStandardScore) {
-      return percentile;
+  const lookupTable: [number, number][] = [
+    [99, 73], [95, 66], [90, 63], [85, 60], [80, 58],
+    [75, 57], [70, 55], [65, 54], [60, 53], [55, 51],
+    [50, 50], [45, 49], [40, 47], [35, 46], [30, 45],
+    [25, 43], [20, 42], [15, 40], [10, 37], [5, 34], [1, 27]
+  ];
+
+  // Inverse linear search optimization over the standard score curve
+  for (let i = 0; i < lookupTable.length - 1; i++) {
+    const [pUpper, sUpper] = lookupTable[i];
+    const [pLower, sLower] = lookupTable[i+1];
+
+    if (requiredARStandardScore <= sUpper && requiredARStandardScore >= sLower) {
+      // Interpolate back to a percentile value
+      return pUpper + ((requiredARStandardScore - sUpper) * (pLower - pUpper)) / (sLower - sUpper);
     }
   }
   
-  return 50; // Default
+  return 50;
 };
 
 // Track-specific GT targets and requirements
@@ -107,7 +115,7 @@ export const TRACK_GT_REQUIREMENTS = {
   'C': { minGT: 100, description: 'Support roles' }
 };
 
-// Estimate weeks needed based on current scores
+// Estimate weeks needed based on non-linear ceiling compression
 export const estimateWeeksToTarget = (
   currentGT: number,
   targetGT: number,
@@ -116,20 +124,33 @@ export const estimateWeeksToTarget = (
   const pointsNeeded = targetGT - currentGT;
   if (pointsNeeded <= 0) return 0;
   
-  // Empirical estimates: ~2-3 GT points per 10 percentile AR improvement
-  // Harder gains at higher percentiles
-  const percentileRoom = Math.max(0, 95 - currentARPercentile);
-  const estimatedGTGain = percentileRoom * 0.25;
-  
-  if (estimatedGTGain >= pointsNeeded) {
-    // Achievable with AR improvement alone
-    // Estimate 2 weeks per 5 percentile points at lower levels
-    // 3-4 weeks per 5 percentile points at higher levels
-    const weeksPerFivePercentile = currentARPercentile < 70 ? 2 : 3.5;
-    const percentilesNeeded = pointsNeeded / 0.25;
-    return Math.ceil(percentilesNeeded / 5 * weeksPerFivePercentile);
-  } else {
-    // Would need VE improvement too
-    return 16; // Full program
+  // Non-linear ceiling compression simulation
+  // Proximity to 99th percentile exponentially slows down standard score gain velocity
+  let currentP = currentARPercentile;
+  let weeks = 0;
+  let estimatedGT = currentGT;
+  const MAX_WEEKS = 24;
+
+  const veStandardScore = currentGT - percentileToStandardScore(currentARPercentile);
+
+  while (estimatedGT < targetGT && weeks < MAX_WEEKS) {
+    weeks++;
+    // Gain rate decay modeling
+    let weeklyGain = 3.5;
+    if (currentP >= 90) {
+      weeklyGain = 0.4;
+    } else if (currentP >= 80) {
+      weeklyGain = 0.9;
+    } else if (currentP >= 65) {
+      weeklyGain = 1.6;
+    } else if (currentP >= 45) {
+      weeklyGain = 2.5;
+    }
+    
+    currentP = Math.min(99, currentP + weeklyGain);
+    const arStandardScore = percentileToStandardScore(currentP);
+    estimatedGT = veStandardScore + arStandardScore;
   }
+  
+  return weeks;
 };
