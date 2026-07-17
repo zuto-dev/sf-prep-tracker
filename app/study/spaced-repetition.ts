@@ -21,16 +21,24 @@ const daysSince = (isoDate: string): number => {
   return ms / (1000 * 60 * 60 * 24);
 };
 
+// ε keeps mastered cards (accuracy = 1) from priority-collapsing to zero and
+// getting orphaned. Matches the design-doc smoothing coefficient.
+const ACCURACY_EPSILON = 0.1;
+
+// recencyWeight uses log(days+1) which is 0 at 0 days — clamp to a small
+// floor so a freshly-answered card still has non-zero weight in the sampler.
+const MIN_RECENCY_WEIGHT = 0.05;
+
 // Calculate priority score for a question
 export const calculatePriority = (perf: QuestionPerformance): number => {
   const accuracy = perf.totalAttempts > 0 ? perf.correctCount / perf.totalAttempts : 0;
   const daysSinceReview = daysSince(perf.lastAttempted);
-  const recencyWeight = Math.log(daysSinceReview + 1);
-  
-  // Higher priority for lower accuracy and longer time since review
-  // Box also affects priority (lower boxes = higher priority)
+  const recencyWeight = Math.max(MIN_RECENCY_WEIGHT, Math.log(daysSinceReview + 1));
+
+  // Higher priority for lower accuracy and longer time since review.
+  // Box also affects priority (lower boxes = higher priority).
   const boxMultiplier = (6 - perf.currentBox) / 5;
-  return (1 - accuracy) * recencyWeight * boxMultiplier;
+  return (1 - accuracy + ACCURACY_EPSILON) * recencyWeight * boxMultiplier;
 };
 
 // Update performance after answering a question
@@ -82,40 +90,39 @@ export const updatePerformance = (
   };
 };
 
-// Select questions using weighted random sampling based on priority
+// Select questions using weighted random sampling without replacement.
 export const selectQuestionsWeighted = <T extends { id: string }>(
   questions: T[],
   state: SpacedRepetitionState,
   count: number
 ): T[] => {
-  // Calculate priorities
-  const questionsWithPriority = questions.map(q => {
+  const pool = questions.map(q => {
     const perf = state.performanceMap[q.id];
-    const priority = perf ? calculatePriority(perf) : 1.0; // New questions get high priority
+    // New questions get a priority of 1.0 — comparable to a well-overdue,
+    // partially-mastered card, so they get sampled but don't dominate.
+    const priority = perf ? calculatePriority(perf) : 1.0;
     return { question: q, priority };
   });
-  
-  // Sort by priority descending
-  questionsWithPriority.sort((a, b) => b.priority - a.priority);
-  
-  // Weighted random sampling
+
   const selected: T[] = [];
-  const totalPriority = questionsWithPriority.reduce((sum, q) => sum + q.priority, 0);
-  
-  while (selected.length < count && questionsWithPriority.length > 0) {
+  let totalPriority = pool.reduce((sum, q) => sum + q.priority, 0);
+
+  while (selected.length < count && pool.length > 0) {
+    // With ε smoothing every priority is > 0, so totalPriority > 0 too and
+    // this random draw always lands on an item.
     let random = Math.random() * totalPriority;
-    
-    for (let i = 0; i < questionsWithPriority.length; i++) {
-      random -= questionsWithPriority[i].priority;
+
+    for (let i = 0; i < pool.length; i++) {
+      random -= pool[i].priority;
       if (random <= 0) {
-        selected.push(questionsWithPriority[i].question);
-        // Remove selected question from pool
-        questionsWithPriority.splice(i, 1);
+        const [picked] = pool.splice(i, 1);
+        selected.push(picked.question);
+        totalPriority -= picked.priority;
         break;
       }
     }
   }
-  
+
   return selected;
 };
 

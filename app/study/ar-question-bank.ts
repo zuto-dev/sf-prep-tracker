@@ -3,10 +3,14 @@
 // Every question mirrors a real ASVAB AR word-problem shape.
 
 import { generateQuestionSet } from './parametric-generator';
-import { SpacedRepetitionState, selectQuestionsWeighted } from './spaced-repetition';
+import { SpacedRepetitionState, selectQuestionsWeighted, getQueuedQuestions } from './spaced-repetition';
 
 export type ARQuestion = {
   id: string;
+  // Stable ID of the parametric template a generated question came from.
+  // Undefined for hand-authored static questions. All performance tracking
+  // aggregates against this key so parametric attempts don't orphan.
+  templateId?: string;
   missType: 'translation' | 'setup' | 'arithmetic' | 'units' | 'distractor' | 'misread';
   subtype: string; // e.g. 'part-of-fraction', 'percent-increase', 'rate-time-distance'
   prompt: string;
@@ -14,6 +18,12 @@ export type ARQuestion = {
   correct: 0 | 1 | 2 | 3;
   explain: string;
 };
+
+// The key a question rolls up under in the spaced-repetition performanceMap.
+// Static questions key on their own stable id; generated questions key on
+// their template so every attempt against that template accumulates.
+export const perfKeyFor = (q: Pick<ARQuestion, 'id' | 'templateId'>): string =>
+  q.templateId ?? q.id;
 
 export const AR_BANK: ARQuestion[] = [
   // === TRANSLATION: part-of-fraction (Q3, Q16, Q23, Q29 misses) ===
@@ -277,10 +287,15 @@ export function pickReviewSet(
   // Get static questions
   if (staticCount > 0) {
     const staticPool = AR_BANK.filter(q => q.missType === missType);
-    
+
     if (spacedRepState) {
-      // Use spaced repetition selection
-      const selected = selectQuestionsWeighted(staticPool, spacedRepState, staticCount);
+      // Leitner pre-filter: only questions that are actually due for review.
+      // If that empties the pool (rare, but happens right after a heavy
+      // session), fall back to the full pool so drills never stall.
+      const dueIds = new Set(getQueuedQuestions(spacedRepState, staticPool.map(q => q.id)));
+      const duePool = staticPool.filter(q => dueIds.has(q.id));
+      const pool = duePool.length >= staticCount ? duePool : staticPool;
+      const selected = selectQuestionsWeighted(pool, spacedRepState, staticCount);
       questions.push(...selected);
     } else {
       // Fallback to random selection

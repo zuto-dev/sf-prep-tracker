@@ -45,3 +45,8 @@ next-env.d.ts
 /public/audio/
 /get_discord_threads.py
 /search_all_dbs.py
+
+# editor / local backups
+*.backup
+*.bak
+*.orig

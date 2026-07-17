@@ -3,16 +3,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Nav } from '../components/Nav';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
-import { AR_BANK, pickReviewSet, type ARQuestion } from './ar-question-bank';
+import { AR_BANK, pickReviewSet, perfKeyFor, type ARQuestion } from './ar-question-bank';
 import { calculateGTScore, calculateRequiredARForGT, TRACK_GT_REQUIREMENTS, estimateWeeksToTarget } from './psychometric-gt';
 import { SpacedRepetitionState, updatePerformance, getPerformanceStats, calculatePriority } from './spaced-repetition';
-import { EnhancedStudyStore, ErrorLogEntry, ReviewResult, TimedReviewState, QuestionTimingData } from './enhanced-types';
+import { EnhancedStudyStore, ErrorLogEntry, ReviewResult, TimedReviewState, QuestionTimingData, BENCHMARK_SECONDS, TestFormat } from './enhanced-types';
 import { CheckCircle2, Circle, Timer, TrendingUp, Brain, AlertCircle, Zap, Target } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 const STORAGE_KEY = 'sfprep:study';
 const PLAN_START = '2026-07-13';
-const TARGET_TIME_SECONDS = 222; // 3.7 minutes per question (AR CAT-ASVAB)
 
 // ============================================================================
 // Tracks — locked by AR diagnostic score
@@ -144,6 +143,7 @@ const MASTERY_GATES = {
 interface StudyStore extends EnhancedStudyStore {
   // Update methods
   setScores: (ar?: number, mk?: number, wk?: number, pc?: number) => void;
+  setTestConfig: (date: string | undefined, format: TestFormat) => void;
   toggleSession: (key: string) => void;
   toggleMastery: (key: string) => void;
   addError: (entry: ErrorLogEntry) => void;
@@ -209,6 +209,15 @@ function useStudyStore(): StudyStore {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
         pushSfprepSync();
         return next;
+    });
+  };
+
+  const setTestConfig = (date: string | undefined, format: TestFormat) => {
+    setStore(prev => {
+      const next = { ...prev, testDate: date, testFormat: format };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      pushSfprepSync();
+      return next;
     });
   };
 
@@ -278,6 +287,7 @@ function useStudyStore(): StudyStore {
   return {
     ...store,
     setScores,
+    setTestConfig,
     toggleSession,
     toggleMastery,
     addError,
@@ -290,24 +300,28 @@ function useStudyStore(): StudyStore {
 }
 
 // Timer Component for Quiz
-function QuestionTimer({ startTime, onTimeout }: { startTime: number; onTimeout: () => void }) {
+function QuestionTimer({ startTime, benchmarkSeconds, onTimeout }: { startTime: number; benchmarkSeconds: number; onTimeout: () => void }) {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     const interval = setInterval(() => {
       const seconds = (Date.now() - startTime) / 1000;
       setElapsed(seconds);
-      
-      if (seconds > TARGET_TIME_SECONDS) {
+
+      // Auto-timeout at 1.5× benchmark — hard stop so a hung question doesn't
+      // eat the whole session, but with enough slack to log a "slow" attempt.
+      if (seconds > benchmarkSeconds * 1.5) {
         onTimeout();
       }
     }, 100);
 
     return () => clearInterval(interval);
-  }, [startTime, onTimeout]);
+  }, [startTime, benchmarkSeconds, onTimeout]);
 
-  const paceColor = elapsed < 180 ? 'text-green-400' : 
-                   elapsed < TARGET_TIME_SECONDS ? 'text-yellow-400' : 'text-red-400';
+  const warnAt = benchmarkSeconds * 0.8;
+  const paceColor = elapsed < warnAt ? 'text-green-400'
+    : elapsed < benchmarkSeconds ? 'text-yellow-400'
+    : 'text-red-400';
 
   return (
     <div className={`flex items-center gap-2 ${paceColor}`}>
@@ -315,7 +329,7 @@ function QuestionTimer({ startTime, onTimeout }: { startTime: number; onTimeout:
       <span className="font-mono text-sm">
         {Math.floor(elapsed / 60)}:{String(Math.floor(elapsed % 60)).padStart(2, '0')}
       </span>
-      {elapsed > TARGET_TIME_SECONDS && <AlertCircle className="w-4 h-4 animate-pulse" />}
+      {elapsed > benchmarkSeconds && <AlertCircle className="w-4 h-4 animate-pulse" />}
     </div>
   );
 }
@@ -323,10 +337,12 @@ function QuestionTimer({ startTime, onTimeout }: { startTime: number; onTimeout:
 // Enhanced Review Modal with Timing
 function ReviewModal({
   review,
+  benchmarkSeconds,
   onSubmit,
   store
 }: {
   review: TimedReviewState;
+  benchmarkSeconds: number;
   onSubmit: (review: TimedReviewState) => void;
   store: StudyStore;
 }) {
@@ -370,8 +386,9 @@ function ReviewModal({
           <h3 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent">
             {currentReview.missType} Review - Q{currentReview.currentQuestionIndex + 1}/{currentReview.qs.length}
           </h3>
-          <QuestionTimer 
-            startTime={currentReview.startTimes[currentReview.currentQuestionIndex]} 
+          <QuestionTimer
+            startTime={currentReview.startTimes[currentReview.currentQuestionIndex]}
+            benchmarkSeconds={benchmarkSeconds}
             onTimeout={handleTimeout}
           />
         </div>
@@ -413,27 +430,51 @@ function ReviewModal({
   );
 }
 
+// Three-state outcome — the fluency-gap signal that separates a concept
+// miss from being too slow to pass under real testing conditions.
+type Outcome = 'right' | 'slow' | 'wrong';
+const outcomeFor = (correct: boolean, timeSeconds: number, benchmark: number): Outcome => {
+  if (!correct) return 'wrong';
+  return timeSeconds > benchmark ? 'slow' : 'right';
+};
+
+function OutcomePill({ outcome }: { outcome: Outcome }) {
+  const spec = {
+    right: { label: 'Right',            klass: 'bg-green-500/15  text-green-300  border-green-500/30'  },
+    slow:  { label: 'Right, over time', klass: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30' },
+    wrong: { label: 'Wrong',            klass: 'bg-red-500/15    text-red-300    border-red-500/30'    },
+  }[outcome];
+  return (
+    <span className={`inline-block text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border ${spec.klass}`}>
+      {spec.label}
+    </span>
+  );
+}
+
 // Review Results Modal
 function ReviewResultsModal({
   review,
+  benchmarkSeconds,
   onClose,
   store
 }: {
   review: TimedReviewState & { score: number };
+  benchmarkSeconds: number;
   onClose: () => void;
   store: StudyStore;
 }) {
   const pct = review.score / review.qs.length;
   const passed = pct >= 0.8;
-  
-  const timingStats = review.qs.map((q, i) => ({
-    time: (review.endTimes[i] - review.startTimes[i]) / 1000,
-    correct: review.answers[i] === q.correct,
-    overTime: (review.endTimes[i] - review.startTimes[i]) / 1000 > TARGET_TIME_SECONDS
-  }));
-  
+
+  const timingStats = review.qs.map((q, i) => {
+    const time = (review.endTimes[i] - review.startTimes[i]) / 1000;
+    const correct = review.answers[i] === q.correct;
+    return { time, correct, outcome: outcomeFor(correct, time, benchmarkSeconds) };
+  });
+
   const avgTime = timingStats.reduce((sum, s) => sum + s.time, 0) / timingStats.length;
-  const overTimeCount = timingStats.filter(s => s.overTime).length;
+  const slowCount = timingStats.filter(s => s.outcome === 'slow').length;
+  const overTimeCount = timingStats.filter(s => s.time > benchmarkSeconds).length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur">
@@ -447,41 +488,38 @@ function ReviewResultsModal({
             <p className="text-sm text-gray-400">Score</p>
             <p className="text-2xl font-bold">{review.score}/{review.qs.length} ({Math.round(pct * 100)}%)</p>
             <p className="text-sm mt-2">
-              {passed ? '✅ Passed! Errors cleared.' : '❌ Keep practicing (need 80%)'}
+              {passed ? 'Passed. Errors cleared.' : `Keep practicing (need 80%).`}
             </p>
           </div>
 
-          <div className={`p-4 rounded-lg border ${avgTime <= TARGET_TIME_SECONDS ? 'bg-green-500/10 border-green-500/20' : 'bg-yellow-500/10 border-yellow-500/20'}`}>
-            <p className="text-sm text-gray-400">Pacing</p>
+          <div className={`p-4 rounded-lg border ${avgTime <= benchmarkSeconds ? 'bg-green-500/10 border-green-500/20' : 'bg-yellow-500/10 border-yellow-500/20'}`}>
+            <p className="text-sm text-gray-400">Pacing · benchmark {benchmarkSeconds}s</p>
             <p className="text-2xl font-bold">{avgTime.toFixed(1)}s avg</p>
             <p className="text-sm mt-2">
-              {overTimeCount > 0 ? `⚠️ ${overTimeCount} questions over time` : '✅ Good pace!'}
+              {slowCount > 0
+                ? `${slowCount} right-but-slow · ${overTimeCount} total over time`
+                : 'Under benchmark on every attempt.'}
             </p>
           </div>
         </div>
 
         <div className="space-y-4 max-h-96 overflow-y-auto">
           {review.qs.map((q, i) => {
-            const correct = review.answers[i] === q.correct;
-            const time = timingStats[i].time;
-            const overTime = timingStats[i].overTime;
-            
+            const { correct, time, outcome } = timingStats[i];
+            const overTime = time > benchmarkSeconds;
+
             return (
               <div key={i} className={`p-4 rounded-lg border ${correct ? 'bg-gray-800/50 border-gray-700' : 'bg-red-500/10 border-red-500/20'}`}>
-                <div className="flex justify-between items-start mb-2">
+                <div className="flex justify-between items-start gap-3 mb-2">
                   <p className="font-medium">{q.prompt}</p>
-                  <div className="flex items-center gap-2">
-                    {correct ? (
-                      <CheckCircle2 className="w-5 h-5 text-green-400" />
-                    ) : (
-                      <AlertCircle className="w-5 h-5 text-red-400" />
-                    )}
-                    <span className={`text-sm ${overTime ? 'text-red-400' : 'text-gray-400'}`}>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <OutcomePill outcome={outcome} />
+                    <span className={`text-sm font-mono ${overTime ? 'text-red-400' : 'text-gray-400'}`}>
                       {time.toFixed(1)}s
                     </span>
                   </div>
                 </div>
-                
+
                 {!correct && (
                   <div className="text-sm space-y-1">
                     <p className="text-red-400">
@@ -525,8 +563,66 @@ export default function StudyPage() {
   // Calculate GT scores
   const gtCalc = useMemo(() => {
     if (!store.arDiag) return null;
-    return calculateGTScore(store.arDiag, store.mkDiag, store.wkDiag, store.pcDiag);
+    return calculateGTScore({
+      ar: store.arDiag,
+      wk: store.wkDiag,
+      pc: store.pcDiag,
+      mk: store.mkDiag,
+    });
   }, [store.arDiag, store.mkDiag, store.wkDiag, store.pcDiag]);
+
+  // Test format defaults to CAT (MEPS default). Toggle-visible in the strip.
+  const testFormat: TestFormat = store.testFormat ?? 'cat';
+  const benchmarkSeconds = BENCHMARK_SECONDS[testFormat];
+
+  // Days to test from configured date, or null if not set.
+  const daysToTest = useMemo(() => {
+    if (!store.testDate) return null;
+    const target = new Date(store.testDate).getTime();
+    if (isNaN(target)) return null;
+    const now = Date.now();
+    return Math.max(0, Math.ceil((target - now) / (1000 * 60 * 60 * 24)));
+  }, [store.testDate]);
+
+  // Correct-but-Slow rate over the last 50 timing entries — the fluency-gap
+  // KPI. A pure accuracy number can't distinguish "concept miss" from
+  // "would fail on the clock", and that distinction changes what you drill.
+  const cbsRate = useMemo(() => {
+    const recent = store.questionTimingHistory.slice(-50);
+    if (recent.length === 0) return null;
+    const slow = recent.filter(t => t.correct && t.timeSeconds > benchmarkSeconds).length;
+    return { rate: slow / recent.length, sample: recent.length };
+  }, [store.questionTimingHistory, benchmarkSeconds]);
+
+  // Topic weakness — accuracy × median time per missType from the timing
+  // log. Drives the clickable weakness table; replaces the Leitner-box UI.
+  const topicWeakness = useMemo(() => {
+    type Row = { missType: string; total: number; correct: number; times: number[] };
+    const buckets = new Map<string, Row>();
+    for (const t of store.questionTimingHistory) {
+      const key = t.missType ?? 'unknown';
+      const row = buckets.get(key) ?? { missType: key, total: 0, correct: 0, times: [] };
+      row.total += 1;
+      if (t.correct) row.correct += 1;
+      row.times.push(t.timeSeconds);
+      buckets.set(key, row);
+    }
+    return Array.from(buckets.values())
+      .map(r => {
+        const sorted = [...r.times].sort((a, b) => a - b);
+        const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+        return {
+          missType: r.missType,
+          accuracy: r.total ? r.correct / r.total : 0,
+          medianSeconds: median,
+          attempts: r.total,
+          severity: (r.total ? r.correct / r.total : 0) < 0.7 ? 'bad'
+                  : median > benchmarkSeconds ? 'slow'
+                  : 'good',
+        };
+      })
+      .sort((a, b) => a.accuracy - b.accuracy || b.medianSeconds - a.medianSeconds);
+  }, [store.questionTimingHistory, benchmarkSeconds]);
 
   const track = store.arDiag ? trackForAr(store.arDiag) : null;
   const weeks = track === 'A' ? WEEKS_A : track === 'B' ? WEEKS_B : WEEKS_C;
@@ -577,10 +673,10 @@ export default function StudyPage() {
       const correct = submittedReview.answers[i] === q.correct;
       const timeSeconds = (submittedReview.endTimes[i] - submittedReview.startTimes[i]) / 1000;
       
-      updatedSpacedRep = updatePerformance(updatedSpacedRep, q.id, correct, timeSeconds);
-      
-      // Auto-log failed questions
-      if (!correct && !q.id.startsWith('gen_')) { // Don't log generated questions
+      updatedSpacedRep = updatePerformance(updatedSpacedRep, perfKeyFor(q), correct, timeSeconds);
+
+      // Auto-log failed questions (static bank only — generated ones repeat too much noise)
+      if (!correct && !q.templateId) {
         const errorEntry: ErrorLogEntry = {
           id: `auto_${Date.now()}_${i}`,
           date: new Date().toISOString(),
@@ -596,9 +692,12 @@ export default function StudyPage() {
         store.addError(errorEntry);
       }
       
-      // Add timing data
+      // Add timing data — stamp missType at write time so weakness
+      // aggregation doesn't have to look questions back up (parametric
+      // instances aren't retained past the session).
       const timingData: QuestionTimingData = {
         questionId: q.id,
+        missType: q.missType,
         startTime: submittedReview.startTimes[i],
         endTime: submittedReview.endTimes[i],
         timeSeconds,
@@ -615,7 +714,7 @@ export default function StudyPage() {
       (submittedReview.endTimes[i] - submittedReview.startTimes[i]) / 1000
     );
     const avgTime = timings.reduce((sum, t) => sum + t, 0) / timings.length;
-    const timedOutCount = timings.filter(t => t > TARGET_TIME_SECONDS).length;
+    const timedOutCount = timings.filter(t => t > benchmarkSeconds).length;
     
     // Add review result
     const result: ReviewResult = {
@@ -795,106 +894,145 @@ export default function StudyPage() {
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white">
       <Nav />
       
-      {/* GT Score Header */}
+      {/* Status Strip — three KPIs the whole page is about, plus test config */}
       <div className="sticky top-14 z-40 bg-gray-900/80 backdrop-blur border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex flex-wrap gap-6 items-center justify-between">
-            <div className="flex gap-6">
-              {/* GT Score */}
-              <div className="flex items-center gap-3">
-                <Brain className="w-8 h-8 text-blue-400" />
-                <div>
-                  <p className="text-sm text-gray-400">Estimated GT</p>
-                  <p className="text-2xl font-bold">
-                    {gtCalc ? (
-                      <span className={gtCalc.meetsTarget ? 'text-green-400' : 'text-yellow-400'}>
-                        {gtCalc.estimatedGT}
-                      </span>
-                    ) : '---'}
-                  </p>
-                </div>
-              </div>
-              
-              {/* Target */}
-              <div className="flex items-center gap-3">
-                <Target className="w-8 h-8 text-violet-400" />
-                <div>
-                  <p className="text-sm text-gray-400">To Target</p>
-                  <p className="text-2xl font-bold">
-                    {gtCalc ? (
-                      gtCalc.meetsTarget ? 
-                        <span className="text-green-400">✓ Met</span> :
-                        <span className="text-orange-400">+{gtCalc.pointsToTarget}</span>
-                    ) : '---'}
-                  </p>
-                </div>
-              </div>
-              
-              {/* Track */}
-              <div className="flex items-center gap-3">
-                <TrendingUp className="w-8 h-8 text-green-400" />
-                <div>
-                  <p className="text-sm text-gray-400">Track</p>
-                  <p className="text-2xl font-bold text-blue-400">{track}</p>
-                </div>
-              </div>
+          <div className="flex flex-wrap gap-8 items-end justify-between">
+
+            {/* GT Estimate */}
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">GT Estimate</p>
+              <p className="text-3xl font-semibold font-mono tabular-nums">
+                {gtCalc ? (
+                  <span className={gtCalc.meetsTarget ? 'text-green-400' : 'text-white'}>
+                    {gtCalc.estimatedGT}
+                  </span>
+                ) : '---'}
+                <span className="text-sm text-gray-500 ml-2 font-normal">
+                  / <span className="text-orange-400">110</span>
+                </span>
+              </p>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                {gtCalc?.meetsTarget ? 'On target · maintain'
+                  : gtCalc ? `${gtCalc.pointsToTarget} points to go · Track ${track}`
+                  : 'Enter diagnostics to compute'}
+              </p>
             </div>
-            
-            {/* Update Scores Button */}
-            <button
-              onClick={() => setShowDiagInput(!showDiagInput)}
-              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm transition-colors"
-            >
-              Update Scores
-            </button>
-          </div>
-          
-          {/* Score Input Panel */}
-          {showDiagInput && (
-            <div className="mt-4 p-4 bg-gray-800/50 rounded-lg">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="text-xs text-gray-400">AR %</label>
-                  <input
-                    type="number"
-                    value={store.arDiag || ''}
-                    onChange={(e) => store.setScores(Number(e.target.value), store.mkDiag, store.wkDiag, store.pcDiag)}
-                    className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400">MK %</label>
-                  <input
-                    type="number"
-                    value={store.mkDiag || ''}
-                    onChange={(e) => store.setScores(store.arDiag, Number(e.target.value), store.wkDiag, store.pcDiag)}
-                    className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400">WK % (Word Knowledge)</label>
-                  <input
-                    type="number"
-                    value={store.wkDiag || ''}
-                    onChange={(e) => store.setScores(store.arDiag, store.mkDiag, Number(e.target.value), store.pcDiag)}
-                    placeholder="86"
-                    className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400">PC % (Paragraph Comp)</label>
-                  <input
-                    type="number"
-                    value={store.pcDiag || ''}
-                    onChange={(e) => store.setScores(store.arDiag, store.mkDiag, store.wkDiag, Number(e.target.value))}
-                    placeholder="75"
-                    className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
+
+            {/* Days to Test */}
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">Days to Test</p>
+              <p className="text-3xl font-semibold font-mono tabular-nums">
+                {daysToTest !== null ? daysToTest : <span className="text-gray-600">—</span>}
+              </p>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                {store.testDate
+                  ? `${testFormat.toUpperCase()} · ${new Date(store.testDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+                  : 'Set a test date to enable pacing'}
+              </p>
+            </div>
+
+            {/* Correct-but-Slow */}
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">Correct-but-Slow · last 50</p>
+              <p className="text-3xl font-semibold font-mono tabular-nums">
+                {cbsRate ? (
+                  <span className={cbsRate.rate > 0.25 ? 'text-yellow-400' : 'text-white'}>
+                    {Math.round(cbsRate.rate * 100)}<span className="text-sm text-gray-500 font-normal ml-0.5">%</span>
+                  </span>
+                ) : <span className="text-gray-600">—</span>}
+              </p>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                {cbsRate ? `${cbsRate.sample} attempts · benchmark ${benchmarkSeconds}s` : 'Drill to populate'}
+              </p>
+            </div>
+
+            {/* Format toggle + settings */}
+            <div className="flex items-center gap-3">
+              <div className="inline-flex text-[10px] uppercase tracking-wider font-semibold border border-gray-700 rounded overflow-hidden">
+                <button
+                  onClick={() => store.setTestConfig(store.testDate, 'cat')}
+                  className={`px-3 py-1.5 transition-colors ${testFormat === 'cat' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
+                  title="CAT-ASVAB at MEPS — 3:42 per question"
+                >
+                  CAT · 222s
+                </button>
+                <button
+                  onClick={() => store.setTestConfig(store.testDate, 'met')}
+                  className={`px-3 py-1.5 transition-colors ${testFormat === 'met' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
+                  title="MET paper at satellite site — 72s per question"
+                >
+                  MET · 72s
+                </button>
               </div>
-              <div className="mt-3 text-sm text-gray-400">
-                VE Standard Score: {gtCalc?.veStandardScore || '--'} | 
-                AR Standard Score: {gtCalc?.arStandardScore || '--'}
+              <button
+                onClick={() => setShowDiagInput(!showDiagInput)}
+                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded text-xs text-gray-300 transition-colors"
+              >
+                Settings
+              </button>
+            </div>
+          </div>
+
+          {/* Settings drawer — diagnostics + test date */}
+          {showDiagInput && (
+            <div className="mt-4 p-4 bg-gray-800/50 rounded-lg space-y-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Diagnostic scores</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="text-xs text-gray-400">AR %</label>
+                    <input
+                      type="number"
+                      value={store.arDiag || ''}
+                      onChange={(e) => store.setScores(Number(e.target.value), store.mkDiag, store.wkDiag, store.pcDiag)}
+                      className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400">MK %</label>
+                    <input
+                      type="number"
+                      value={store.mkDiag || ''}
+                      onChange={(e) => store.setScores(store.arDiag, Number(e.target.value), store.wkDiag, store.pcDiag)}
+                      className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400">WK %</label>
+                    <input
+                      type="number"
+                      value={store.wkDiag || ''}
+                      onChange={(e) => store.setScores(store.arDiag, store.mkDiag, Number(e.target.value), store.pcDiag)}
+                      placeholder="86"
+                      className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400">PC %</label>
+                    <input
+                      type="number"
+                      value={store.pcDiag || ''}
+                      onChange={(e) => store.setScores(store.arDiag, store.mkDiag, store.wkDiag, Number(e.target.value))}
+                      placeholder="75"
+                      className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  VE Standard: {gtCalc?.veStandardScore ?? '--'} · AR Standard: {gtCalc?.arStandardScore ?? '--'}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Test schedule</p>
+                <label className="text-xs text-gray-400">Scheduled test date</label>
+                <input
+                  type="date"
+                  value={store.testDate?.slice(0, 10) ?? ''}
+                  onChange={(e) => store.setTestConfig(e.target.value || undefined, testFormat)}
+                  className="mt-1 px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none text-sm"
+                />
               </div>
             </div>
           )}
@@ -1132,57 +1270,56 @@ export default function StudyPage() {
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {/* Spaced Repetition Stats */}
+            {/* Topic Weakness — replaces the Leitner-box visualization.
+                Every row is clickable and starts a drill scoped to that missType. */}
             <div className="bg-gray-900/50 backdrop-blur rounded-xl border border-gray-800 p-6">
-              <h3 className="font-bold mb-4 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                Spaced Repetition Stats
-              </h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm text-gray-400">Overall Accuracy</p>
-                  <p className="text-2xl font-bold">
-                    {(spacedRepStats.averageAccuracy * 100).toFixed(1)}%
-                  </p>
-                </div>
-                
-                <div>
-                  <p className="text-sm text-gray-400 mb-2">Leitner Boxes</p>
-                  <div className="space-y-1">
-                    {[1, 2, 3, 4, 5].map(box => (
-                      <div key={box} className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500 w-12">Box {box}</span>
-                        <div className="flex-1 h-4 bg-gray-800 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-purple-600 to-pink-600"
-                            style={{
-                              width: `${
-                                (spacedRepStats.boxDistribution[box as keyof typeof spacedRepStats.boxDistribution] /
-                                  Math.max(1, spacedRepStats.totalQuestions)) *
-                                100
-                              }%`
-                            }}
-                          />
-                        </div>
-                        <span className="text-xs text-gray-400 w-8 text-right">
-                          {spacedRepStats.boxDistribution[box as keyof typeof spacedRepStats.boxDistribution]}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                
-                <div>
-                  <p className="text-sm text-gray-400">Average Time/Question</p>
-                  <p className={`text-xl font-bold ${
-                    spacedRepStats.averageTimeSeconds <= TARGET_TIME_SECONDS
-                      ? 'text-green-400'
-                      : 'text-orange-400'
-                  }`}>
-                    {spacedRepStats.averageTimeSeconds.toFixed(1)}s
-                  </p>
-                </div>
+              <div className="flex items-baseline justify-between mb-4">
+                <h3 className="font-bold">Topic Weakness</h3>
+                <span className="text-[10px] uppercase tracking-widest text-gray-500">
+                  {spacedRepStats.totalQuestions} in review
+                </span>
               </div>
+
+              {topicWeakness.length === 0 ? (
+                <p className="text-sm text-gray-500">
+                  Drill a few questions and this table will fill in — worst topic on top.
+                </p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-widest text-gray-500 border-b border-gray-800">
+                      <th className="text-left font-normal pb-2">Topic</th>
+                      <th className="text-right font-normal pb-2">Acc</th>
+                      <th className="text-right font-normal pb-2">Median</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topicWeakness.map(row => (
+                      <tr
+                        key={row.missType}
+                        onClick={() => startReview(row.missType as ARQuestion['missType'])}
+                        className="border-b border-gray-800/60 last:border-0 cursor-pointer hover:bg-gray-800/40 transition-colors"
+                        title={`Drill ${row.missType} · ${row.attempts} attempts`}
+                      >
+                        <td className="py-2 capitalize">
+                          <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
+                            row.severity === 'bad'  ? 'bg-red-500' :
+                            row.severity === 'slow' ? 'bg-yellow-500' :
+                                                      'bg-green-500'
+                          }`} />
+                          {row.missType}
+                        </td>
+                        <td className="py-2 text-right font-mono tabular-nums">{Math.round(row.accuracy * 100)}%</td>
+                        <td className="py-2 text-right font-mono tabular-nums text-gray-400">
+                          {row.medianSeconds < 60
+                            ? `${Math.round(row.medianSeconds)}s`
+                            : `${Math.floor(row.medianSeconds / 60)}:${String(Math.round(row.medianSeconds % 60)).padStart(2, '0')}`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
 
             {/* Recent Reviews */}
@@ -1255,13 +1392,14 @@ export default function StudyPage() {
 
       {/* Review Modal */}
       {review && !review.done && (
-        <ReviewModal review={review} onSubmit={submitReview} store={store} />
+        <ReviewModal review={review} benchmarkSeconds={benchmarkSeconds} onSubmit={submitReview} store={store} />
       )}
 
       {/* Review Results Modal */}
       {reviewResults && (
         <ReviewResultsModal
           review={reviewResults}
+          benchmarkSeconds={benchmarkSeconds}
           onClose={() => setReviewResults(null)}
           store={store}
         />

@@ -41,12 +41,15 @@ const calculateVEStandardScore = (wkPercentile: number, pcPercentile: number): n
 };
 
 // Calculate GT score with all components
-export const calculateGTScore = (
-  arPercentile: number,
-  wkPercentile?: number,
-  pcPercentile?: number,
-  mkPercentile?: number
-): GTCalculation => {
+// Named-object params so callers can't silently swap same-typed args.
+export const calculateGTScore = (input: {
+  ar: number;
+  wk?: number;
+  pc?: number;
+  mk?: number;
+}): GTCalculation => {
+  const { ar: arPercentile, wk: wkPercentile, pc: pcPercentile } = input;
+  // MK is captured for completeness but not used in GT (VE + AR only).
   // Default VE scores if not provided (as in current implementation)
   const wk = wkPercentile ?? 86;
   const pc = pcPercentile ?? 75;

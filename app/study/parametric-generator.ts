@@ -536,7 +536,8 @@ export function generateQuestionSet(
     
     const generated = template.generate();
     questions.push({
-      id: `gen_${Date.now()}_${i}`,
+      id: `gen_${template.id}_${Date.now()}_${i}`,
+      templateId: template.id,
       ...generated
     });
   }
