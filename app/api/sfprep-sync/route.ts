@@ -2,10 +2,12 @@ import { NextResponse } from 'next/server';
 import { readFile, writeFile, mkdir, rename } from 'fs/promises';
 import path from 'path';
 import { SyncPayloadSchema, resolveConflicts, type SyncDelta } from '../../lib/sfprep-sync';
+import { mergeLegacySnapshot, type LegacySyncState } from '../../lib/sync-migration';
 
 const DATA_DIR = path.join(process.cwd(), '.data');
 const DATA_FILE = path.join(DATA_DIR, 'sfprep-sync.json');
 const TMP_FILE = path.join(DATA_DIR, 'sfprep-sync.json.tmp');
+const LEGACY_SYNC_FILE = path.join(process.cwd(), 'data', 'sync-state.json');
 
 // Server-side store shape: one resolved delta per key (this file stands in
 // for the `sync_deltas` Postgres table from Blueprint SECTION 1.3 until a
@@ -40,6 +42,24 @@ async function writeStore(store: DeltaStore) {
   await rename(TMP_FILE, DATA_FILE);
 }
 
+async function readLegacyState(): Promise<LegacySyncState> {
+  try {
+    const raw = await readFile(LEGACY_SYNC_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed as LegacySyncState : {};
+  } catch {
+    return {};
+  }
+}
+
+async function readStoreWithLegacyMigration(): Promise<DeltaStore> {
+  const current = await readStore();
+  const legacy = await readLegacyState();
+  const migrated = mergeLegacySnapshot(current, legacy, new Date().toISOString());
+  if (migrated.migratedKeys.length > 0) await writeStore(migrated.store);
+  return migrated.store;
+}
+
 function toSnapshot(store: DeltaStore): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, delta] of Object.entries(store)) out[key] = delta.value;
@@ -48,7 +68,7 @@ function toSnapshot(store: DeltaStore): Record<string, string> {
 
 export async function GET() {
   try {
-    const store = await readStore();
+    const store = await readStoreWithLegacyMigration();
     return NextResponse.json({
       snapshot: toSnapshot(store),
       deltas: Object.values(store),
@@ -102,7 +122,7 @@ export async function POST(req: Request) {
     }
     const { deltas: incomingDeltas } = parsed.data;
 
-    const store = await readStore();
+    const store = await readStoreWithLegacyMigration();
     const localDeltas = Object.values(store);
     const resolved = resolveConflicts(localDeltas, incomingDeltas);
 
