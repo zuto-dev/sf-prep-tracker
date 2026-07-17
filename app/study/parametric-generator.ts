@@ -1,7 +1,8 @@
 // Parametric Infinite-Problem Generator for ASVAB AR
 // Generates infinite unique problems from mathematical templates
 
-import { ARQuestion } from './ar-question-bank';
+import { ARQuestion, topicForQuestion } from './ar-question-bank';
+import type { ARTopicSlug } from './lesson-types';
 
 // Random utilities
 const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -509,31 +510,34 @@ export const PARAMETRIC_TEMPLATES: ParametricTemplate[] = [
   ...unitsTemplates,
 ];
 
-// Generate a mixed set of questions
+// Generate a mixed set of questions filtered by missType OR topic.
 export function generateQuestionSet(
-  missType?: ARQuestion['missType'],
+  filter: { missType?: ARQuestion['missType'] } | { topic: ARTopicSlug } = {},
   count: number = 5
 ): ARQuestion[] {
-  let templates = missType 
-    ? PARAMETRIC_TEMPLATES.filter(t => t.missType === missType)
-    : PARAMETRIC_TEMPLATES;
-  
-  // Fallback if no templates exist for this missType (e.g. 'distractor' or 'misread')
-  if (templates.length === 0) {
+  let templates: ParametricTemplate[];
+  if ('topic' in filter && filter.topic) {
+    templates = PARAMETRIC_TEMPLATES.filter(t => topicForQuestion({ subtype: t.subtype }) === filter.topic);
+  } else if ('missType' in filter && filter.missType) {
+    templates = PARAMETRIC_TEMPLATES.filter(t => t.missType === filter.missType);
+  } else {
     templates = PARAMETRIC_TEMPLATES;
   }
-  
+
+  // Fallback if no templates exist for this filter — use the whole pool so
+  // drills don't stall on an under-covered topic.
+  if (templates.length === 0) templates = PARAMETRIC_TEMPLATES;
+
   const questions: ARQuestion[] = [];
   const usedTemplates = new Set<string>();
-  
+
   for (let i = 0; i < count; i++) {
-    // Try to use each template once before repeating
     const availableTemplates = templates.filter(t => !usedTemplates.has(t.id));
     const templatePool = availableTemplates.length > 0 ? availableTemplates : templates;
-    
+
     const template = randChoice(templatePool);
     usedTemplates.add(template.id);
-    
+
     const generated = template.generate();
     questions.push({
       id: `gen_${template.id}_${Date.now()}_${i}`,
@@ -541,6 +545,6 @@ export function generateQuestionSet(
       ...generated
     });
   }
-  
+
   return questions;
 }

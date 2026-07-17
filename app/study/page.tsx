@@ -1,17 +1,52 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Nav } from '../components/Nav';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
-import { AR_BANK, pickReviewSet, perfKeyFor, type ARQuestion } from './ar-question-bank';
-import { calculateGTScore, calculateRequiredARForGT, TRACK_GT_REQUIREMENTS, estimateWeeksToTarget } from './psychometric-gt';
-import { SpacedRepetitionState, updatePerformance, getPerformanceStats, calculatePriority } from './spaced-repetition';
+import { AR_BANK, pickReviewSet, perfKeyFor, topicForQuestion, type ARQuestion } from './ar-question-bank';
+import { calculateGTScore } from './psychometric-gt';
+import { SpacedRepetitionState, updatePerformance, getPerformanceStats } from './spaced-repetition';
 import { EnhancedStudyStore, ErrorLogEntry, ReviewResult, TimedReviewState, QuestionTimingData, BENCHMARK_SECONDS, TestFormat } from './enhanced-types';
-import { CheckCircle2, Circle, Timer, TrendingUp, Brain, AlertCircle, Zap, Target } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { AR_TOPICS, WK_TOPICS, PC_TOPICS, TEST_DAY_TOPICS, LESSON_BY_SLUG } from './lessons-content';
+import type { ARTopicSlug } from './lesson-types';
+import { Timer, AlertCircle, Brain, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 const STORAGE_KEY = 'sfprep:study';
 const PLAN_START = '2026-07-13';
+
+// Wraps useSearchParams — kept in its own component so we can drop it
+// inside a <Suspense> boundary (Next 16 requires that for static export).
+function DrillAutostart({
+  onTrigger,
+  active,
+}: {
+  onTrigger: (topic: ARTopicSlug) => void;
+  active: boolean; // when a drill is already running, ignore query
+}) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  useEffect(() => {
+    const drillTopic = searchParams.get('drill');
+    if (!drillTopic || active) return;
+    const validTopics: string[] = AR_TOPICS.map(t => t.slug);
+    if (!validTopics.includes(drillTopic)) return;
+    onTrigger(drillTopic as ARTopicSlug);
+    router.replace('/study');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+  return null;
+}
+
+// Small display helper — seconds to "M:SS" past 60s, "SSs" under.
+const formatTime = (s: number): string => {
+  if (!s || s <= 0) return '—';
+  if (s < 60) return `${Math.round(s)}s`;
+  const m = Math.floor(s / 60);
+  const rest = Math.round(s % 60);
+  return `${m}:${String(rest).padStart(2, '0')}`;
+};
 
 // ============================================================================
 // Tracks — locked by AR diagnostic score
@@ -594,6 +629,50 @@ export default function StudyPage() {
     return { rate: slow / recent.length, sample: recent.length };
   }, [store.questionTimingHistory, benchmarkSeconds]);
 
+  // Per-topic mastery for the curriculum grid. Each AR topic gets a state
+  // (unstarted / learning / mastered) plus accuracy and median-time stats
+  // derived from the timing log. Mastered = >=80% accuracy AND median time
+  // at or under the benchmark, with at least 5 attempts.
+  const topicMastery = useMemo(() => {
+    type State = 'unstarted' | 'learning' | 'mastered';
+    const out: Record<string, { state: State; accuracy: number; median: number; attempts: number }> = {};
+    // seed every AR topic so the grid always shows all of them
+    for (const t of AR_TOPICS) out[t.slug] = { state: 'unstarted', accuracy: 0, median: 0, attempts: 0 };
+    // group timing entries by topic
+    const buckets = new Map<string, { correct: number; total: number; times: number[] }>();
+    for (const t of store.questionTimingHistory) {
+      if (!t.topic) continue;
+      const b = buckets.get(t.topic) ?? { correct: 0, total: 0, times: [] };
+      b.total += 1;
+      if (t.correct) b.correct += 1;
+      b.times.push(t.timeSeconds);
+      buckets.set(t.topic, b);
+    }
+    for (const [topic, b] of buckets) {
+      if (!(topic in out)) continue;
+      const sorted = [...b.times].sort((a, z) => a - z);
+      const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+      const accuracy = b.total ? b.correct / b.total : 0;
+      const mastered = b.total >= 5 && accuracy >= 0.8 && median <= benchmarkSeconds;
+      out[topic] = {
+        state: mastered ? 'mastered' : 'learning',
+        accuracy, median, attempts: b.total,
+      };
+    }
+    return out;
+  }, [store.questionTimingHistory, benchmarkSeconds]);
+
+  // Today's-lesson pick: the AR topic with the weakest performance among
+  // those with data; otherwise the first foundation topic (fractions).
+  const priorityTopic = useMemo(() => {
+    const withData = AR_TOPICS
+      .map(t => ({ meta: t, mastery: topicMastery[t.slug] }))
+      .filter(x => x.mastery.attempts > 0 && x.mastery.state !== 'mastered');
+    if (withData.length === 0) return AR_TOPICS[0]; // no data yet → start at foundation
+    withData.sort((a, b) => a.mastery.accuracy - b.mastery.accuracy || b.mastery.median - a.mastery.median);
+    return withData[0].meta;
+  }, [topicMastery]);
+
   // Topic weakness — accuracy × median time per missType from the timing
   // log. Drives the clickable weakness table; replaces the Leitner-box UI.
   const topicWeakness = useMemo(() => {
@@ -644,11 +723,24 @@ export default function StudyPage() {
   // Get spaced repetition stats
   const spacedRepStats = getPerformanceStats(store.spacedRepetition);
 
-  // Start review
+  // Start review — legacy missType-based entry (error log review buttons).
   const startReview = (missType: ARQuestion['missType']) => {
-    const questions = pickReviewSet(missType, 5, store.spacedRepetition, true);
+    const questions = pickReviewSet({ missType }, 5, store.spacedRepetition, true);
+    startDrillWithQuestions(missType, questions);
+  };
+
+  // Start review — new topic-based entry (from lesson pages and curriculum grid).
+  const startReviewByTopic = (topic: ARTopicSlug) => {
+    const questions = pickReviewSet({ topic }, 10, store.spacedRepetition, true);
+    // TimedReviewState carries a missType for legacy display; use the first
+    // question's missType as a stand-in when we're drilling by topic.
+    const missType = questions[0]?.missType ?? 'arithmetic';
+    startDrillWithQuestions(missType, questions);
+  };
+
+  const startDrillWithQuestions = (missType: ARQuestion['missType'], questions: ARQuestion[]) => {
+    if (questions.length === 0) return;
     const now = Date.now();
-    
     setReview({
       missType,
       qs: questions,
@@ -657,9 +749,12 @@ export default function StudyPage() {
       startTimes: [now, ...new Array(questions.length - 1).fill(0)],
       endTimes: new Array(questions.length).fill(0),
       currentQuestionIndex: 0,
-      totalStartTime: now
+      totalStartTime: now,
     });
   };
+
+  // Drill autostart from ?drill= lives in DrillAutostart below —
+  // useSearchParams needs to sit inside a Suspense boundary in Next 16.
 
   // Submit review
   const submitReview = (submittedReview: TimedReviewState) => {
@@ -692,12 +787,14 @@ export default function StudyPage() {
         store.addError(errorEntry);
       }
       
-      // Add timing data — stamp missType at write time so weakness
-      // aggregation doesn't have to look questions back up (parametric
-      // instances aren't retained past the session).
+      // Add timing data — stamp missType AND topic at write time so
+      // per-topic mastery on the curriculum grid can aggregate without
+      // needing to look questions back up (generated instances are
+      // discarded after the session).
       const timingData: QuestionTimingData = {
         questionId: q.id,
         missType: q.missType,
+        topic: topicForQuestion(q),
         startTime: submittedReview.startTimes[i],
         endTime: submittedReview.endTimes[i],
         timeSeconds,
@@ -893,501 +990,336 @@ export default function StudyPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white">
       <Nav />
-      
-      {/* Status Strip — three KPIs the whole page is about, plus test config */}
-      <div className="sticky top-14 z-40 bg-gray-900/80 backdrop-blur border-b border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex flex-wrap gap-8 items-end justify-between">
 
-            {/* GT Estimate */}
-            <div>
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">GT Estimate</p>
-              <p className="text-3xl font-semibold font-mono tabular-nums">
-                {gtCalc ? (
-                  <span className={gtCalc.meetsTarget ? 'text-green-400' : 'text-white'}>
-                    {gtCalc.estimatedGT}
-                  </span>
-                ) : '---'}
-                <span className="text-sm text-gray-500 ml-2 font-normal">
-                  / <span className="text-orange-400">110</span>
-                </span>
-              </p>
-              <p className="text-[11px] text-gray-500 mt-0.5">
-                {gtCalc?.meetsTarget ? 'On target · maintain'
-                  : gtCalc ? `${gtCalc.pointsToTarget} points to go · Track ${track}`
-                  : 'Enter diagnostics to compute'}
-              </p>
-            </div>
+      <Suspense fallback={null}>
+        <DrillAutostart onTrigger={startReviewByTopic} active={!!review} />
+      </Suspense>
 
-            {/* Days to Test */}
-            <div>
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">Days to Test</p>
-              <p className="text-3xl font-semibold font-mono tabular-nums">
-                {daysToTest !== null ? daysToTest : <span className="text-gray-600">—</span>}
-              </p>
-              <p className="text-[11px] text-gray-500 mt-0.5">
-                {store.testDate
-                  ? `${testFormat.toUpperCase()} · ${new Date(store.testDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
-                  : 'Set a test date to enable pacing'}
-              </p>
-            </div>
+      {/* ── Compact status ribbon — KPIs demoted so lessons dominate the page ── */}
+      <div className="sticky top-14 z-40 bg-gray-900/85 backdrop-blur border-b border-gray-800">
+        <div className="max-w-5xl mx-auto px-6 py-2.5">
+          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs">
+            <span className="text-gray-400">
+              GT <span className="font-mono tabular-nums text-white">{gtCalc?.estimatedGT ?? '—'}</span>
+              <span className="text-orange-400">/110</span>
+            </span>
+            <span className="text-gray-400">
+              Days to test <span className="font-mono tabular-nums text-white">{daysToTest ?? '—'}</span>
+            </span>
+            <span className="text-gray-400">
+              Correct-but-slow <span className={`font-mono tabular-nums ${cbsRate && cbsRate.rate > 0.25 ? 'text-yellow-400' : 'text-white'}`}>
+                {cbsRate ? `${Math.round(cbsRate.rate * 100)}%` : '—'}
+              </span>
+            </span>
+            <span className="text-gray-400">
+              Priority <Link href={`/study/lessons/${priorityTopic.slug}`} className="text-orange-400 hover:underline">{priorityTopic.title}</Link>
+            </span>
 
-            {/* Correct-but-Slow */}
-            <div>
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">Correct-but-Slow · last 50</p>
-              <p className="text-3xl font-semibold font-mono tabular-nums">
-                {cbsRate ? (
-                  <span className={cbsRate.rate > 0.25 ? 'text-yellow-400' : 'text-white'}>
-                    {Math.round(cbsRate.rate * 100)}<span className="text-sm text-gray-500 font-normal ml-0.5">%</span>
-                  </span>
-                ) : <span className="text-gray-600">—</span>}
-              </p>
-              <p className="text-[11px] text-gray-500 mt-0.5">
-                {cbsRate ? `${cbsRate.sample} attempts · benchmark ${benchmarkSeconds}s` : 'Drill to populate'}
-              </p>
-            </div>
-
-            {/* Format toggle + settings */}
-            <div className="flex items-center gap-3">
-              <div className="inline-flex text-[10px] uppercase tracking-wider font-semibold border border-gray-700 rounded overflow-hidden">
-                <button
-                  onClick={() => store.setTestConfig(store.testDate, 'cat')}
-                  className={`px-3 py-1.5 transition-colors ${testFormat === 'cat' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
-                  title="CAT-ASVAB at MEPS — 3:42 per question"
-                >
-                  CAT · 222s
-                </button>
-                <button
-                  onClick={() => store.setTestConfig(store.testDate, 'met')}
-                  className={`px-3 py-1.5 transition-colors ${testFormat === 'met' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
-                  title="MET paper at satellite site — 72s per question"
-                >
-                  MET · 72s
-                </button>
-              </div>
+            <span className="ml-auto inline-flex text-[10px] uppercase tracking-wider font-semibold border border-gray-700 rounded overflow-hidden">
               <button
-                onClick={() => setShowDiagInput(!showDiagInput)}
-                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded text-xs text-gray-300 transition-colors"
-              >
-                Settings
-              </button>
-            </div>
+                onClick={() => store.setTestConfig(store.testDate, 'cat')}
+                className={`px-2.5 py-1 transition-colors ${testFormat === 'cat' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
+                title="CAT-ASVAB at MEPS — 3:42 per question"
+              >CAT · 222s</button>
+              <button
+                onClick={() => store.setTestConfig(store.testDate, 'met')}
+                className={`px-2.5 py-1 transition-colors ${testFormat === 'met' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
+                title="Paper MET at satellite site — 72s per question"
+              >MET · 72s</button>
+            </span>
+            <button
+              onClick={() => setShowDiagInput(!showDiagInput)}
+              className="px-2.5 py-1 border border-gray-700 hover:border-gray-500 rounded text-[10px] uppercase tracking-wider text-gray-400 hover:text-white transition-colors"
+            >Settings</button>
           </div>
 
-          {/* Settings drawer — diagnostics + test date */}
           {showDiagInput && (
-            <div className="mt-4 p-4 bg-gray-800/50 rounded-lg space-y-4">
+            <div className="mt-3 p-4 bg-gray-800/60 rounded-lg space-y-4">
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Diagnostic scores</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div>
-                    <label className="text-xs text-gray-400">AR %</label>
-                    <input
-                      type="number"
-                      value={store.arDiag || ''}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <label className="text-xs text-gray-400 block">AR %
+                    <input type="number" value={store.arDiag || ''}
                       onChange={(e) => store.setScores(Number(e.target.value), store.mkDiag, store.wkDiag, store.pcDiag)}
-                      className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-400">MK %</label>
-                    <input
-                      type="number"
-                      value={store.mkDiag || ''}
+                      className="mt-1 w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none text-sm text-white" />
+                  </label>
+                  <label className="text-xs text-gray-400 block">MK %
+                    <input type="number" value={store.mkDiag || ''}
                       onChange={(e) => store.setScores(store.arDiag, Number(e.target.value), store.wkDiag, store.pcDiag)}
-                      className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-400">WK %</label>
-                    <input
-                      type="number"
-                      value={store.wkDiag || ''}
+                      className="mt-1 w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none text-sm text-white" />
+                  </label>
+                  <label className="text-xs text-gray-400 block">WK %
+                    <input type="number" value={store.wkDiag || ''} placeholder="86"
                       onChange={(e) => store.setScores(store.arDiag, store.mkDiag, Number(e.target.value), store.pcDiag)}
-                      placeholder="86"
-                      className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-400">PC %</label>
-                    <input
-                      type="number"
-                      value={store.pcDiag || ''}
+                      className="mt-1 w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none text-sm text-white" />
+                  </label>
+                  <label className="text-xs text-gray-400 block">PC %
+                    <input type="number" value={store.pcDiag || ''} placeholder="75"
                       onChange={(e) => store.setScores(store.arDiag, store.mkDiag, store.wkDiag, Number(e.target.value))}
-                      placeholder="75"
-                      className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                    />
-                  </div>
+                      className="mt-1 w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none text-sm text-white" />
+                  </label>
                 </div>
                 <p className="mt-2 text-xs text-gray-500">
-                  VE Standard: {gtCalc?.veStandardScore ?? '--'} · AR Standard: {gtCalc?.arStandardScore ?? '--'}
+                  VE Std: {gtCalc?.veStandardScore ?? '--'} · AR Std: {gtCalc?.arStandardScore ?? '--'}
                 </p>
               </div>
-
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Test schedule</p>
-                <label className="text-xs text-gray-400">Scheduled test date</label>
-                <input
-                  type="date"
-                  value={store.testDate?.slice(0, 10) ?? ''}
-                  onChange={(e) => store.setTestConfig(e.target.value || undefined, testFormat)}
-                  className="mt-1 px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none text-sm"
-                />
+                <label className="text-xs text-gray-400 block">Scheduled test date
+                  <input type="date" value={store.testDate?.slice(0, 10) ?? ''}
+                    onChange={(e) => store.setTestConfig(e.target.value || undefined, testFormat)}
+                    className="mt-1 px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none text-sm text-white" />
+                </label>
               </div>
             </div>
           )}
         </div>
       </div>
-      
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Content */}
-          <div className="lg:col-span-2 space-y-8">
-            {/* RETARD-PROOF DAILY STUDY GUIDE */}
-            {activeSession ? (
-              <div className="bg-gradient-to-r from-blue-900/40 via-violet-900/30 to-black border-2 border-blue-500/30 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-                <div className="absolute top-0 right-0 px-3 py-1 bg-blue-500/20 text-blue-300 text-[10px] uppercase font-bold tracking-wider rounded-bl-xl border-l border-b border-blue-500/30">
-                  Active Study Session
-                </div>
-                
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-full bg-blue-500/10 border border-blue-500/30 flex items-center justify-center">
-                    <Target className="w-5 h-5 text-blue-400" />
+
+      <div className="max-w-5xl mx-auto px-6 pt-10 pb-24">
+
+        {/* ── Masthead ── */}
+        <div className="mb-16">
+          <div className="text-[10px] font-mono tracking-[0.24em] uppercase text-gray-500 mb-2">
+            SF-Prep / 18X · Curriculum
+          </div>
+          <h1 className="text-4xl font-serif font-normal text-white leading-tight text-balance" style={{ fontFamily: 'Georgia, "Charter", serif' }}>
+            Learn the math the ASVAB actually tests, then drill it under the clock.
+          </h1>
+          <p className="mt-4 text-gray-400 max-w-2xl" style={{ fontFamily: 'Georgia, serif' }}>
+            Every AR question type has a specific shape and one or two setup tricks.
+            Read the lesson, work the example, name the trap out loud, then drill
+            until it's fluent under {benchmarkSeconds === 222 ? '3:42' : '72s'}.
+          </p>
+        </div>
+
+        {/* ── Section 01: Today's Lesson (hero) ── */}
+        <section className="mb-16 pb-16 border-b border-gray-800">
+          <div className="flex items-baseline gap-3 mb-2">
+            <span className="text-[11px] font-mono tracking-widest text-orange-400">01</span>
+            <span className="text-[11px] tracking-widest uppercase text-gray-500 font-medium">Today's Lesson</span>
+          </div>
+          <h2 className="text-2xl font-serif text-white mb-1" style={{ fontFamily: 'Georgia, serif' }}>
+            {priorityTopic.title}
+          </h2>
+          <p className="text-gray-400 mb-3" style={{ fontFamily: 'Georgia, serif' }}>
+            {priorityTopic.subtitle}
+          </p>
+          <div className="flex flex-wrap gap-4 text-xs text-gray-500 mb-6">
+            <span>~{priorityTopic.minutes} min read</span>
+            {priorityTopic.petersonRef && <><span className="text-gray-700">·</span><span>Peterson's <span className="text-white">{priorityTopic.petersonRef}</span></span></>}
+            <span className="text-gray-700">·</span>
+            <span>
+              {topicMastery[priorityTopic.slug].attempts > 0
+                ? <>Your current: <span className="text-red-400">{Math.round(topicMastery[priorityTopic.slug].accuracy * 100)}% · {formatTime(topicMastery[priorityTopic.slug].median)}</span></>
+                : <span className="text-gray-500">No drill data yet — start here</span>}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Link href={`/study/lessons/${priorityTopic.slug}`}
+              className="inline-flex items-center gap-2 px-5 py-3 bg-orange-500 hover:bg-orange-400 text-white rounded font-medium text-sm transition-colors">
+              Read the lesson <ArrowRight className="w-4 h-4" />
+            </Link>
+            <button onClick={() => startReviewByTopic(priorityTopic.slug)}
+              className="px-5 py-3 border border-gray-700 hover:border-gray-500 text-white rounded font-medium text-sm transition-colors">
+              Skip to drill (10 questions)
+            </button>
+          </div>
+        </section>
+
+        {/* ── Section 02: The Curriculum (AR) ── */}
+        <section className="mb-16 pb-16 border-b border-gray-800">
+          <div className="flex items-baseline gap-3 mb-2">
+            <span className="text-[11px] font-mono tracking-widest text-orange-400">02</span>
+            <span className="text-[11px] tracking-widest uppercase text-gray-500 font-medium">The Curriculum · Arithmetic Reasoning</span>
+          </div>
+          <h2 className="text-2xl font-serif text-white mb-4" style={{ fontFamily: 'Georgia, serif' }}>
+            Eleven problem types. Learn them once, drill them cold.
+          </h2>
+          <p className="text-sm text-gray-400 mb-6 max-w-2xl" style={{ fontFamily: 'Georgia, serif' }}>
+            Ordered foundation → advanced. Green means you've hit 80%+ accuracy
+            under benchmark on at least five attempts. Red means the topic is
+            dragging your GT down and gets priority.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 border-t border-gray-800">
+            {AR_TOPICS.map(topic => {
+              const m = topicMastery[topic.slug];
+              const isPriority = topic.slug === priorityTopic.slug && m.attempts > 0;
+              return (
+                <Link
+                  key={topic.slug}
+                  href={`/study/lessons/${topic.slug}`}
+                  className={`group grid grid-cols-[auto_1fr_auto] items-center gap-4 px-4 py-3.5 border-b border-r border-gray-800 md:[&:nth-child(even)]:border-r-0 transition-colors ${
+                    m.state === 'mastered' ? 'hover:bg-green-950/20' : isPriority ? 'bg-red-950/20 hover:bg-red-950/30' : 'hover:bg-gray-800/40'
+                  }`}
+                >
+                  <div className={`w-6 h-6 rounded-full border flex items-center justify-center text-[10px] font-mono ${
+                    m.state === 'mastered' ? 'bg-green-500 border-green-500 text-white'
+                      : m.state === 'learning' ? 'border-orange-500 text-orange-400'
+                      : 'border-gray-600 text-gray-500'
+                  }`}>
+                    {m.state === 'mastered' ? '✓' : topic.order}
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold text-white">
-                      Week {activeSession.week.week} · {activeSession.session.day} Session
-                    </h2>
-                    <p className="text-xs text-gray-400">
-                      Objective: <span className="text-gray-300 font-medium">{activeSession.week.label}</span>
-                    </p>
+                    <div className="text-sm text-white group-hover:text-orange-400 transition-colors" style={{ fontFamily: 'Georgia, serif' }}>
+                      {topic.title}
+                    </div>
+                    <div className="text-[11px] text-gray-500 mt-0.5">{topic.subtitle}</div>
                   </div>
-                </div>
-
-                <div className="bg-black/50 rounded-xl p-4 border border-gray-800 space-y-3.5 mb-5">
-                  <div className="flex gap-2.5 items-start">
-                    <div className="w-5 h-5 rounded-full bg-blue-600/20 border border-blue-500/30 text-[10px] flex items-center justify-center text-blue-300 font-bold shrink-0 mt-0.5">1</div>
-                    <div>
-                      <p className="text-xs font-semibold text-gray-300">CORE THEORY LESSON</p>
-                      <p className="text-sm text-white font-medium mt-0.5">{activeSession.session.core}</p>
-                    </div>
-                  </div>
-
-                  {activeSession.session.peterson && (
-                    <div className="flex gap-2.5 items-start">
-                      <div className="w-5 h-5 rounded-full bg-violet-600/20 border border-violet-500/30 text-[10px] flex items-center justify-center text-violet-300 font-bold shrink-0 mt-0.5">2</div>
-                      <div>
-                        <p className="text-xs font-semibold text-gray-300">PETERSON&apos;S MODULE TASK</p>
-                        <p className="text-sm text-blue-400 font-medium mt-0.5">📚 Peterson&apos;s Module: {activeSession.session.peterson}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex gap-2.5 items-start">
-                    <div className="w-5 h-5 rounded-full bg-green-600/20 border border-green-500/30 text-[10px] flex items-center justify-center text-green-300 font-bold shrink-0 mt-0.5">
-                      {activeSession.session.peterson ? '3' : '2'}
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-gray-300">DAILY PRACTICE DRILL</p>
-                      <p className="text-sm text-gray-400 mt-0.5">
-                        {activeSession.session.layer === 'AR' || activeSession.session.layer === 'MK'
-                          ? 'Run a 5-question parametric drill to test your speed and accuracy.'
-                          : 'Practice active reading and verbal comprehension cards.'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-3">
-                  {(activeSession.session.layer === 'AR' || activeSession.session.layer === 'MK') && (
-                    <button
-                      onClick={() => startReview(activeSession.session.layer === 'AR' ? 'arithmetic' : 'setup')}
-                      className="flex-1 py-3 px-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-blue-950/20 active:scale-[0.98]"
-                    >
-                      <Zap className="w-4 h-4" />
-                      START DRILL NOW
-                    </button>
-                  )}
-                  
-                  <button
-                    onClick={() => store.toggleSession(activeSession.key)}
-                    className="flex-1 py-3 px-4 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-green-950/20 active:scale-[0.98]"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    MARK COMPLETED & ADVANCE
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="bg-green-900/10 border-2 border-green-500/20 rounded-2xl p-6 text-center">
-                <CheckCircle2 className="w-12 h-12 text-green-400 mx-auto mb-2" />
-                <h2 className="text-lg font-bold text-white">All Scheduled Sessions Completed!</h2>
-                <p className="text-gray-400 text-sm mt-1">Excellent work. Keep drilling with parametric questions to sharpen your speed gate!</p>
-              </div>
-            )}
-
-            {/* Week Schedule */}
-            <div className="bg-gray-900/50 backdrop-blur rounded-xl border border-gray-800 p-6">
-              <h2 className="text-xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent">
-                Study Schedule - {TRACK_DEFS[track!].program}
-              </h2>
-              
-              <div className="space-y-4">
-                {weeks.slice(0, 4).map(week => (
-                  <div key={week.week} className="bg-gray-800/50 rounded-lg p-4">
-                    <h3 className="font-medium mb-2">Week {week.week}: {week.label}</h3>
-                    <div className="space-y-2">
-                      {week.sessions.map((session, idx) => (
-                        <div key={idx} className="flex items-start gap-3">
-                          <button
-                            onClick={() => store.toggleSession(`W${week.week}${session.day}`)}
-                            className="mt-0.5"
-                          >
-                            {store.sessionState[`W${week.week}${session.day}`] === 'complete' ? (
-                              <CheckCircle2 className="w-5 h-5 text-green-400" />
-                            ) : (
-                              <Circle className="w-5 h-5 text-gray-600 hover:text-blue-400 transition-colors" />
-                            )}
-                          </button>
-                          <div className="flex-1">
-                            <p className="font-medium text-sm">{session.day} - {session.layer}</p>
-                            <p className="text-sm text-gray-400">{session.core}</p>
-                            {session.peterson && (
-                              <p className="text-xs text-blue-400 mt-1">📚 {session.peterson}</p>
-                            )}
-                          </div>
+                  <div className="text-right font-mono tabular-nums text-xs">
+                    {m.attempts > 0 ? (
+                      <>
+                        <div className={m.state === 'mastered' ? 'text-green-400' : isPriority ? 'text-red-400' : 'text-white'}>
+                          {Math.round(m.accuracy * 100)}%
                         </div>
-                      ))}
-                    </div>
+                        <div className="text-gray-500 text-[10px]">{formatTime(m.median)}</div>
+                      </>
+                    ) : <span className="text-gray-600">—</span>}
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Mastery Gates */}
-            <div className="bg-gray-900/50 backdrop-blur rounded-xl border border-gray-800 p-6">
-              <h2 className="text-xl font-bold mb-6 bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
-                Mastery Gates
-              </h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {Object.entries(MASTERY_GATES).map(([key, desc]) => (
-                  <button
-                    key={key}
-                    onClick={() => store.toggleMastery(key)}
-                    className={`p-3 rounded-lg border text-left transition-all ${
-                      store.masteryChecks[key]
-                        ? 'bg-green-500/10 border-green-500/20'
-                        : 'bg-gray-800/50 border-gray-700 hover:border-gray-600'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      {store.masteryChecks[key] ? (
-                        <CheckCircle2 className="w-5 h-5 text-green-400 mt-0.5" />
-                      ) : (
-                        <Circle className="w-5 h-5 text-gray-600 mt-0.5" />
-                      )}
-                      <div>
-                        <p className="font-medium text-sm">{key}</p>
-                        <p className="text-xs text-gray-400 mt-1">{desc}</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Error Log */}
-            <div className="bg-gray-900/50 backdrop-blur rounded-xl border border-gray-800 p-6">
-              <h2 className="text-xl font-bold mb-6 bg-gradient-to-r from-red-400 to-orange-400 bg-clip-text text-transparent">
-                Error Log & Review
-              </h2>
-              
-              <div className="mb-4 flex flex-wrap gap-2">
-                {['translation', 'setup', 'arithmetic', 'units', 'distractor', 'misread'].map(type => {
-                  const typeErrors = store.errorLog.filter(e => e.missType === type && !e.cleared);
-                  return (
-                    <button
-                      key={type}
-                      onClick={() => startReview(type as ARQuestion['missType'])}
-                      disabled={typeErrors.length === 0}
-                      className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                        typeErrors.length > 0
-                          ? 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/40'
-                          : 'bg-gray-800/50 text-gray-600 cursor-not-allowed'
-                      }`}
-                    >
-                      Review {type} ({typeErrors.length})
-                    </button>
-                  );
-                })}
-              </div>
-              
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {store.errorLog.slice().reverse().slice(0, 10).map(error => (
-                  <div
-                    key={error.id}
-                    className={`p-3 rounded-lg flex items-start gap-3 ${
-                      error.cleared
-                        ? 'bg-green-500/10 border border-green-500/20'
-                        : 'bg-gray-800/50 border border-gray-700'
-                    }`}
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs px-2 py-1 rounded ${
-                          error.autoLogged ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-700 text-gray-400'
-                        }`}>
-                          {error.missType}
-                        </span>
-                        {error.autoLogged && <Zap className="w-3 h-3 text-blue-400" />}
-                        <span className="text-xs text-gray-500">
-                          {new Date(error.date).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <p className="text-sm mt-1">{error.note}</p>
-                      {error.questionId && (
-                        <div className="text-xs text-gray-400 mt-1">
-                          {error.chosenAnswer && <p>Your answer: {error.chosenAnswer}</p>}
-                          {error.correctAnswer && <p>Correct: {error.correctAnswer}</p>}
-                          {error.timeSeconds && <p>Time: {error.timeSeconds.toFixed(1)}s</p>}
-                        </div>
-                      )}
-                    </div>
-                    {!error.cleared && (
-                      <button
-                        onClick={() => store.removeError(error.id)}
-                        className="text-gray-500 hover:text-red-400 transition-colors"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+                </Link>
+              );
+            })}
           </div>
+        </section>
 
-          {/* Sidebar */}
-          <div className="space-y-6">
-            {/* Topic Weakness — replaces the Leitner-box visualization.
-                Every row is clickable and starts a drill scoped to that missType. */}
-            <div className="bg-gray-900/50 backdrop-blur rounded-xl border border-gray-800 p-6">
-              <div className="flex items-baseline justify-between mb-4">
-                <h3 className="font-bold">Topic Weakness</h3>
-                <span className="text-[10px] uppercase tracking-widest text-gray-500">
-                  {spacedRepStats.totalQuestions} in review
-                </span>
-              </div>
-
-              {topicWeakness.length === 0 ? (
-                <p className="text-sm text-gray-500">
-                  Drill a few questions and this table will fill in — worst topic on top.
+        {/* ── Section 03: Drill (compact) ── */}
+        <section className="mb-16 pb-16 border-b border-gray-800">
+          <div className="flex items-baseline gap-3 mb-2">
+            <span className="text-[11px] font-mono tracking-widest text-orange-400">03</span>
+            <span className="text-[11px] tracking-widest uppercase text-gray-500 font-medium">Drill Loop</span>
+          </div>
+          <h2 className="text-2xl font-serif text-white mb-4" style={{ fontFamily: 'Georgia, serif' }}>
+            Test the fluency the lesson taught you.
+          </h2>
+          <div className="grid md:grid-cols-[1fr_auto] gap-8 items-center bg-gray-900/50 border-l-2 border-orange-500 p-6">
+            <div>
+              <p className="text-sm text-gray-300 leading-relaxed max-w-lg" style={{ fontFamily: 'Georgia, serif' }}>
+                Every question starts a timer against the {testFormat === 'cat' ? '3:42 CAT' : '72s MET'} benchmark.
+                Every answer is logged as <em className="text-orange-400 not-italic">right</em>, <em className="text-yellow-400 not-italic">right-but-slow</em>, or <em className="text-red-400 not-italic">wrong</em> so the next lesson knows what to focus on.
+              </p>
+              {store.reviewResults.length > 0 && (
+                <p className="text-xs text-gray-500 mt-3">
+                  Last drill: <span className="text-white">{store.reviewResults[store.reviewResults.length - 1].score}/{store.reviewResults[store.reviewResults.length - 1].total}</span> · avg <span className="text-white">{store.reviewResults[store.reviewResults.length - 1].avgTimeSeconds.toFixed(1)}s</span>
                 </p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-[10px] uppercase tracking-widest text-gray-500 border-b border-gray-800">
-                      <th className="text-left font-normal pb-2">Topic</th>
-                      <th className="text-right font-normal pb-2">Acc</th>
-                      <th className="text-right font-normal pb-2">Median</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {topicWeakness.map(row => (
-                      <tr
-                        key={row.missType}
-                        onClick={() => startReview(row.missType as ARQuestion['missType'])}
-                        className="border-b border-gray-800/60 last:border-0 cursor-pointer hover:bg-gray-800/40 transition-colors"
-                        title={`Drill ${row.missType} · ${row.attempts} attempts`}
-                      >
-                        <td className="py-2 capitalize">
-                          <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
-                            row.severity === 'bad'  ? 'bg-red-500' :
-                            row.severity === 'slow' ? 'bg-yellow-500' :
-                                                      'bg-green-500'
-                          }`} />
-                          {row.missType}
-                        </td>
-                        <td className="py-2 text-right font-mono tabular-nums">{Math.round(row.accuracy * 100)}%</td>
-                        <td className="py-2 text-right font-mono tabular-nums text-gray-400">
-                          {row.medianSeconds < 60
-                            ? `${Math.round(row.medianSeconds)}s`
-                            : `${Math.floor(row.medianSeconds / 60)}:${String(Math.round(row.medianSeconds % 60)).padStart(2, '0')}`}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               )}
             </div>
-
-            {/* Recent Reviews */}
-            <div className="bg-gray-900/50 backdrop-blur rounded-xl border border-gray-800 p-6">
-              <h3 className="font-bold mb-4 bg-gradient-to-r from-cyan-400 to-teal-400 bg-clip-text text-transparent">
-                Recent Reviews
-              </h3>
-              
-              <div className="space-y-3">
-                {store.reviewResults.slice(-5).reverse().map((result, idx) => {
-                  const pct = result.score / result.total;
-                  return (
-                    <div key={idx} className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium">{result.missType}</p>
-                        <p className="text-xs text-gray-400">
-                          {new Date(result.date).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className={`font-medium ${pct >= 0.8 ? 'text-green-400' : 'text-red-400'}`}>
-                          {Math.round(pct * 100)}%
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {result.avgTimeSeconds.toFixed(1)}s avg
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
+            <div className="text-right">
+              <div className="font-mono tabular-nums text-3xl text-white">
+                {testFormat === 'cat' ? '3:42' : '1:12'}
               </div>
-            </div>
-
-            {/* Quick Actions */}
-            <div className="bg-gray-900/50 backdrop-blur rounded-xl border border-gray-800 p-6">
-              <h3 className="font-bold mb-4">Quick Actions</h3>
-              
-              <div className="space-y-3">
-                <button
-                  onClick={() => startReview('arithmetic')}
-                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors"
-                >
-                  Start Arithmetic Drill
-                </button>
-                
-                <button
-                  onClick={() => {
-                    setShowDiagInput(true);
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
-                  className="w-full py-3 bg-violet-600 hover:bg-violet-700 rounded-lg font-medium text-center transition-colors"
-                >
-                  Update/Retake Diagnostics
-                </button>
-                
-                <button
-                  onClick={() => {
-                    const requiredAR = calculateRequiredARForGT(110, store.wkDiag || 86, store.pcDiag || 75);
-                    alert(`To hit GT 110, you need AR ≥ ${requiredAR}%\\n\\nEstimated ${estimateWeeksToTarget(gtCalc?.estimatedGT || 100, 110, store.arDiag!)} weeks of focused practice.`);
-                  }}
-                  className="w-full py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium transition-colors"
-                >
-                  Calculate Path to GT 110
-                </button>
-              </div>
+              <div className="text-[10px] tracking-widest uppercase text-gray-500 mt-1">Benchmark / Q</div>
             </div>
           </div>
-        </div>
+          <div className="flex flex-wrap gap-3 mt-4">
+            <button onClick={() => startReviewByTopic(priorityTopic.slug)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-400 text-white rounded font-medium text-sm transition-colors">
+              Drill priority topic ({priorityTopic.title.split(/[—:]/)[0].trim()}) →
+            </button>
+            <button onClick={() => {
+              // Mixed drill across all AR: pick the weakest 3-4 topics
+              const weakest = AR_TOPICS
+                .map(t => ({ topic: t, m: topicMastery[t.slug] }))
+                .filter(x => x.m.state !== 'mastered')
+                .sort((a, b) => (a.m.accuracy || 0) - (b.m.accuracy || 0))[0];
+              if (weakest) startReviewByTopic(weakest.topic.slug);
+            }}
+              className="px-5 py-2.5 border border-gray-700 hover:border-gray-500 text-white rounded font-medium text-sm transition-colors">
+              Mixed AR drill
+            </button>
+          </div>
+        </section>
+
+        {/* ── Section 04: Verbal (WK + PC) ── */}
+        <section className="mb-16 pb-16 border-b border-gray-800">
+          <div className="flex items-baseline gap-3 mb-2">
+            <span className="text-[11px] font-mono tracking-widest text-orange-400">04</span>
+            <span className="text-[11px] tracking-widest uppercase text-gray-500 font-medium">Verbal · WK + PC</span>
+          </div>
+          <h2 className="text-2xl font-serif text-white mb-4" style={{ fontFamily: 'Georgia, serif' }}>
+            GT is half verbal. Vocabulary is volume; comprehension is technique.
+          </h2>
+
+          <div className="grid md:grid-cols-2 gap-10">
+            <div>
+              <h3 className="text-base text-white mb-3" style={{ fontFamily: 'Georgia, serif' }}>
+                Word Knowledge — strategies
+              </h3>
+              <ul className="border-t border-gray-800">
+                {WK_TOPICS.map(t => (
+                  <li key={t.slug} className="border-b border-gray-800">
+                    <Link href={`/study/lessons/${t.slug}`} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 py-3 group">
+                      <span className="font-mono text-[11px] text-gray-500">{t.order}/{WK_TOPICS.length}</span>
+                      <span className="text-sm text-white group-hover:text-orange-400 transition-colors" style={{ fontFamily: 'Georgia, serif' }}>
+                        {t.title}
+                        <span className="block text-[11px] text-gray-500 mt-0.5" style={{ fontFamily: 'ui-sans-serif, sans-serif' }}>{t.subtitle}</span>
+                      </span>
+                      <span className="text-orange-400 text-xs">Read →</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-5 bg-gray-900/50 border border-gray-800 p-4 rounded">
+                <div className="text-[10px] uppercase tracking-widest text-orange-400 font-semibold mb-2">Volume happens outside the page</div>
+                <p className="text-sm text-gray-300 leading-relaxed" style={{ fontFamily: 'Georgia, serif' }}>
+                  You need ~2,000 vocabulary reps and no web page beats <strong className="text-white">Anki (FSRS scheduler)</strong> for that. Install once, import a deck, do 15 minutes with your coffee. This app doesn't compete — it tracks your daily reps.
+                </p>
+                <a href="https://apps.ankiweb.net/" target="_blank" rel="noopener noreferrer"
+                  className="inline-block mt-3 text-xs text-orange-400 hover:underline">Get Anki →</a>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-base text-white mb-3" style={{ fontFamily: 'Georgia, serif' }}>
+                Paragraph Comprehension — strategies
+              </h3>
+              <ul className="border-t border-gray-800">
+                {PC_TOPICS.map(t => (
+                  <li key={t.slug} className="border-b border-gray-800">
+                    <Link href={`/study/lessons/${t.slug}`} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 py-3 group">
+                      <span className="font-mono text-[11px] text-gray-500">{t.order}/{PC_TOPICS.length}</span>
+                      <span className="text-sm text-white group-hover:text-orange-400 transition-colors" style={{ fontFamily: 'Georgia, serif' }}>
+                        {t.title}
+                        <span className="block text-[11px] text-gray-500 mt-0.5" style={{ fontFamily: 'ui-sans-serif, sans-serif' }}>{t.subtitle}</span>
+                      </span>
+                      <span className="text-orange-400 text-xs">Read →</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-5 text-sm text-gray-500 italic" style={{ fontFamily: 'Georgia, serif' }}>
+                PC gains are small in weeks — most GT leverage is still AR. Do these
+                strategies once, use them on every practice test, and don't overspend
+                prep time here.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Section 05: Test-Day Strategy ── */}
+        <section>
+          <div className="flex items-baseline gap-3 mb-2">
+            <span className="text-[11px] font-mono tracking-widest text-orange-400">05</span>
+            <span className="text-[11px] tracking-widest uppercase text-gray-500 font-medium">Test-Day Strategy</span>
+          </div>
+          <h2 className="text-2xl font-serif text-white mb-6" style={{ fontFamily: 'Georgia, serif' }}>
+            The score you get is the score you can execute under real conditions.
+          </h2>
+
+          <div className="flex flex-col">
+            {TEST_DAY_TOPICS.map(t => (
+              <Link key={t.slug} href={`/study/lessons/${t.slug}`}
+                className="grid grid-cols-[auto_1fr] gap-6 py-5 border-b border-gray-800 last:border-0 group">
+                <span className="font-mono text-sm text-orange-400 font-medium pt-0.5">0{t.order}</span>
+                <div>
+                  <h4 className="text-lg text-white group-hover:text-orange-400 transition-colors" style={{ fontFamily: 'Georgia, serif' }}>{t.title}</h4>
+                  <p className="text-sm text-gray-400 mt-1 max-w-2xl" style={{ fontFamily: 'Georgia, serif' }}>{t.subtitle}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+
       </div>
 
       {/* Review Modal */}

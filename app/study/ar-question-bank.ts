@@ -4,6 +4,7 @@
 
 import { generateQuestionSet } from './parametric-generator';
 import { SpacedRepetitionState, selectQuestionsWeighted, getQueuedQuestions } from './spaced-repetition';
+import type { ARTopicSlug } from './lesson-types';
 
 export type ARQuestion = {
   id: string;
@@ -13,10 +14,61 @@ export type ARQuestion = {
   templateId?: string;
   missType: 'translation' | 'setup' | 'arithmetic' | 'units' | 'distractor' | 'misread';
   subtype: string; // e.g. 'part-of-fraction', 'percent-increase', 'rate-time-distance'
+  // Explicit topic — set on questions where the subtype-based fallback would
+  // be ambiguous (e.g. 'division' can be distance or work depending on the
+  // problem). If omitted, topicForQuestion() derives it from subtype.
+  topic?: ARTopicSlug;
   prompt: string;
   choices: [string, string, string, string];
   correct: 0 | 1 | 2 | 3;
   explain: string;
+};
+
+// Subtype → topic mapping used when a question doesn't declare its topic
+// explicitly. Kept as a plain table so it's obvious what maps where.
+const SUBTYPE_TO_TOPIC: Record<string, ARTopicSlug> = {
+  'part-of-fraction': 'fractions',
+  'rate-time-distance': 'distance',
+  'elapsed-time': 'units',
+  'work': 'rate-work',
+  'percent-increase': 'percentages',
+  'percent-deduction': 'percentages',
+  'percent-off': 'percentages',
+  'percent-find-whole': 'percentages',
+  'profit-per-item': 'algebra-word',
+  'scale-ratio': 'ratios',
+  'decimal-multiply': 'percentages',
+  'coin-adding': 'algebra-word',
+  'division': 'distance',                 // most 'division' questions are rate/mpg
+  'division-with-remainder': 'distance',
+  'tons-lb': 'units', 'pt-qt-gal': 'units', 'ft-in': 'units', 'yd-ft': 'units',
+  'oz-lb': 'units', 'time-min-hr': 'units', 'km-mi': 'units', 'ft-in-fraction': 'units',
+  'unit-mismatch': 'units',
+  'magnitude': 'percentages',
+  'find-whole-vs-part': 'percentages',
+  'formula-plugin': 'algebra-word',       // overridden per-question where geometry/interest
+  'scientific-notation': 'algebra-word',
+  'exponent-rules': 'algebra-word',
+  'probability': 'algebra-word',
+  'factorial': 'algebra-word',
+  'solve-decimal-coef': 'algebra-word',
+  'polygon-angles': 'geometry',
+  'cube-vol-sa': 'geometry',
+  'radicals': 'algebra-word',
+  'variable-rate': 'algebra-word',
+  'concentration': 'mixture',
+  'weighted-average': 'averages',
+  'simple-average': 'averages',
+  'simple-interest': 'interest',
+  'compound-interest': 'interest',
+  'area': 'geometry',
+  'perimeter': 'geometry',
+  'volume': 'geometry',
+};
+
+export const topicForQuestion = (q: Pick<ARQuestion, 'topic' | 'subtype'>): ARTopicSlug => {
+  if (q.topic) return q.topic;
+  return SUBTYPE_TO_TOPIC[q.subtype] ?? 'algebra-word';
 };
 
 // The key a question rolls up under in the spaced-repetition performanceMap.
@@ -173,11 +225,11 @@ export const AR_BANK: ARQuestion[] = [
   // === MK BANK — added after 2026-07-13 MK diagnostic (46%) ===
 
   // Formula plug-in (Q4, Q22 pattern — the biggest MK gap)
-  { id: 'mk1', missType: 'setup', subtype: 'formula-plugin',
+  { id: 'mk1', missType: 'setup', subtype: 'formula-plugin', topic: 'interest',
     prompt: 'In I = P + PRT, find I when P = 800, R = 5%, T = 3.',
     choices: ['920', '840', '1200', '1400'], correct: 0,
     explain: 'I = 800 + (800 × 0.05 × 3) = 800 + 120 = 920. Compute PRT first, then add P.' },
-  { id: 'mk2', missType: 'setup', subtype: 'formula-plugin',
+  { id: 'mk2', missType: 'setup', subtype: 'formula-plugin', topic: 'geometry',
     prompt: 'In A = ½bh, find A when b = 12 and h = 5.',
     choices: ['17', '30', '60', '120'], correct: 1,
     explain: '½ × 12 × 5 = 30. Half of the base times the height.' },
@@ -265,30 +317,34 @@ export const AR_BANK: ARQuestion[] = [
     explain: 'G gallons per 1 mile × D miles = GD gallons total.' },
 ];
 
-// Helper: pull N questions matching a missType, using spaced repetition if available
+// Helper: pull N questions filtered by topic OR missType, using spaced
+// repetition when available. Topic filter is the lesson-page path; missType
+// is the legacy error-log-review path.
 export function pickReviewSet(
-  missType: ARQuestion['missType'], 
+  filter: { missType: ARQuestion['missType'] } | { topic: ARTopicSlug },
   n = 5,
   spacedRepState?: SpacedRepetitionState,
   useParametric = true
 ): ARQuestion[] {
-  // Mix of parametric (80%) and static questions (20%) for variety
   const parametricCount = useParametric ? Math.ceil(n * 0.8) : 0;
   const staticCount = n - parametricCount;
-  
-  let questions: ARQuestion[] = [];
-  
+  const questions: ARQuestion[] = [];
+
   // Get parametric questions
   if (parametricCount > 0) {
-    const parametricQuestions = generateQuestionSet(missType, parametricCount);
+    const parametricQuestions = 'topic' in filter
+      ? generateQuestionSet({ topic: filter.topic }, parametricCount)
+      : generateQuestionSet({ missType: filter.missType }, parametricCount);
     questions.push(...parametricQuestions);
   }
-  
+
   // Get static questions
   if (staticCount > 0) {
-    const staticPool = AR_BANK.filter(q => q.missType === missType);
+    const staticPool = 'topic' in filter
+      ? AR_BANK.filter(q => topicForQuestion(q) === filter.topic)
+      : AR_BANK.filter(q => q.missType === filter.missType);
 
-    if (spacedRepState) {
+    if (spacedRepState && staticPool.length > 0) {
       // Leitner pre-filter: only questions that are actually due for review.
       // If that empties the pool (rare, but happens right after a heavy
       // session), fall back to the full pool so drills never stall.
@@ -298,7 +354,6 @@ export function pickReviewSet(
       const selected = selectQuestionsWeighted(pool, spacedRepState, staticCount);
       questions.push(...selected);
     } else {
-      // Fallback to random selection
       const shuffled = [...staticPool].sort(() => Math.random() - 0.5);
       questions.push(...shuffled.slice(0, Math.min(staticCount, shuffled.length)));
     }

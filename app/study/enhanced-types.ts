@@ -77,6 +77,7 @@ export interface QuestionTimingData {
   // Recorded at write-time so downstream aggregations don't need to look
   // the question back up (generated questions may not exist by then).
   missType?: string;
+  topic?: string;      // ARTopicSlug — for per-topic mastery on the curriculum grid
   startTime: number; // timestamp
   endTime: number;   // timestamp
   timeSeconds: number;
