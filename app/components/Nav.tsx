@@ -16,6 +16,7 @@ export function Nav() {
       <Link className={cls('/nutrition')} href="/nutrition">Nutrition</Link>
       <Link className={cls('/study')} href="/study">Study</Link>
       <Link className={cls('/standards')} href="/standards">Standards</Link>
+      <Link className={cls('/intel')} href="/intel">Intel</Link>
       <Link className={cls('/pods')} href="/pods">SF Pod</Link>
     </nav>
   );
