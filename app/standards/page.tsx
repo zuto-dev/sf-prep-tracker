@@ -11,7 +11,7 @@ import {
   type HistoryPoint,
   latestPoint,
 } from '../lib/sof-standards';
-import { hydrateLifecycleStore, saveLifecycleStore, type LifecycleStore } from '../lib/sfre-store';
+import { hydrateLifecycleStore, type LifecycleStore } from '../lib/sfre-store';
 import { resolveSfreLifecyclePresentation } from '../lib/sfre-lifecycle-presentation';
 import { canonicalTwoMileSeconds, resolveStrictRuckGate } from '../lib/sfre-program';
 
