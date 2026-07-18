@@ -4,11 +4,19 @@ import test from 'node:test';
 import {
   FOUNDATION_DAYS,
   FOUNDATION_START,
+  FOUNDATION_WEEKS,
+  canToggleCompletion,
   canonicalTwoMileSeconds,
   resolveBodyweightTrend,
   resolveFoundationNutritionGuidance,
+  resolveFoundationSaturdaySession,
+  resolveFoundationTempoCap,
+  resolveFoundationWeekIndex,
+  resolveFridayPrescription,
+  resolveRuckLockState,
   resolveSfreLifecycle,
   resolveStrictRuckGate,
+  resolveThursdayRecoveryPolicy,
 } from './sfre-program.ts';
 
 // --- Lifecycle -------------------------------------------------------------
@@ -166,4 +174,94 @@ test('resolveBodyweightTrend ignores malformed points (non-finite value / missin
     ]),
     'insufficient_data',
   );
+});
+
+// --- Foundation week index ---------------------------------------------------
+
+test('resolveFoundationWeekIndex maps the Foundation start date to week 1', () => {
+  assert.equal(resolveFoundationWeekIndex(FOUNDATION_START), 1);
+});
+
+test('resolveFoundationWeekIndex clamps dates before Foundation start to week 1', () => {
+  assert.equal(resolveFoundationWeekIndex(new Date(FOUNDATION_START.getTime() - 86_400_000)), 1);
+});
+
+test('resolveFoundationWeekIndex advances a week every 7 days and clamps at week 13', () => {
+  assert.equal(resolveFoundationWeekIndex(new Date(FOUNDATION_START.getTime() + 7 * 86_400_000)), 2);
+  assert.equal(resolveFoundationWeekIndex(new Date(FOUNDATION_START.getTime() + 90 * 86_400_000)), FOUNDATION_WEEKS);
+  assert.equal(resolveFoundationWeekIndex(new Date(FOUNDATION_START.getTime() + 400 * 86_400_000)), FOUNDATION_WEEKS);
+});
+
+// --- Friday session prescription --------------------------------------------
+
+test('resolveFridayPrescription is fasted weigh-in, 2-min HRPU, 5-min rest, 2-min sit-ups, in that order', () => {
+  const prescription = resolveFridayPrescription();
+  assert.equal(prescription.kind, 'friday_pt_test');
+  assert.deepEqual(prescription.steps.map(s => s.name), [
+    'Fasted Weigh-In',
+    '2-Minute HRPU (Max Push-ups)',
+    'Rest',
+    '2-Minute Sit-ups',
+  ]);
+  assert.equal(prescription.steps[1].durationSeconds, 120);
+  assert.equal(prescription.steps[2].durationSeconds, 300);
+  assert.equal(prescription.steps[3].durationSeconds, 120);
+});
+
+// --- Thursday protected recovery ---------------------------------------------
+
+test('resolveThursdayRecoveryPolicy marks Thursday as protected recovery that is never a strength make-up day', () => {
+  assert.deepEqual(resolveThursdayRecoveryPolicy(), { protected: true, allowMakeupStrength: false });
+});
+
+// --- Foundation week 10+ hard tempo cap --------------------------------------
+
+test('resolveFoundationTempoCap has no cap before week 10', () => {
+  assert.deepEqual(resolveFoundationTempoCap(9), { hardTempoCapMiles: null, extensionPolicy: 'none' });
+});
+
+test('resolveFoundationTempoCap caps the hard tempo portion at 3 miles from week 10 onward, extension easy-only', () => {
+  assert.deepEqual(resolveFoundationTempoCap(10), { hardTempoCapMiles: 3, extensionPolicy: 'easy_only' });
+  assert.deepEqual(resolveFoundationTempoCap(13), { hardTempoCapMiles: 3, extensionPolicy: 'easy_only' });
+});
+
+// --- Saturday ruck-or-substitute session decision ----------------------------
+
+test('resolveFoundationSaturdaySession reports not_scheduled outside ruck weeks', () => {
+  assert.deepEqual(resolveFoundationSaturdaySession(1, 900), { kind: 'not_scheduled' });
+  assert.deepEqual(resolveFoundationSaturdaySession(8, 900), { kind: 'not_scheduled' });
+});
+
+test('resolveFoundationSaturdaySession replaces a scheduled ruck with the prescribed Easy Long Walk / Recovery when the gate is unmet', () => {
+  const decision = resolveFoundationSaturdaySession(7, null);
+  assert.equal(decision.kind, 'ruck_locked');
+  if (decision.kind === 'ruck_locked') {
+    assert.equal(decision.substitute, 'Easy Long Walk / Recovery');
+    assert.match(decision.lockReason, /960/);
+  }
+});
+
+test('resolveFoundationSaturdaySession keeps a cleared ruck walking-only when the gate is met', () => {
+  assert.deepEqual(resolveFoundationSaturdaySession(7, 900), { kind: 'ruck_cleared', mode: 'walking_only' });
+});
+
+// --- Ruck completion lock -----------------------------------------------------
+
+test('resolveRuckLockState is unlocked when the ruck is not scheduled or cleared', () => {
+  assert.deepEqual(resolveRuckLockState(1, null), { locked: false });
+  assert.deepEqual(resolveRuckLockState(7, 900), { locked: false });
+});
+
+test('resolveRuckLockState locks a scheduled ruck with an unmet gate and names the substitute', () => {
+  const state = resolveRuckLockState(7, null);
+  assert.equal(state.locked, true);
+  if (state.locked) {
+    assert.equal(state.substitute, 'Easy Long Walk / Recovery');
+    assert.match(state.reason, /960/);
+  }
+});
+
+test('canToggleCompletion is the smallest pure completion guard: false when locked, true when unlocked', () => {
+  assert.equal(canToggleCompletion(true), false);
+  assert.equal(canToggleCompletion(false), true);
 });

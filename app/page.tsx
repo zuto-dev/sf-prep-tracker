@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { WorkoutDay } from './components/WorkoutDay';
 import { Nav } from './components/Nav';
-import { PHASES, WEEKS_PER_PHASE, type PhaseKey } from './data/workouts';
-import { pullSfprepSync } from './lib/sfprep-sync';
-import { deriveWorkoutHistory, calculateAdaptiveLoad, acwrZone, acwrZoneColor } from './lib/adaptive-engine';
+import { FOUNDATION_WEEKS, FOUNDATION_WEEK_COUNT } from './data/workouts';
+import { resolveFoundationWeekIndex } from './lib/sfre-program';
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] as const;
 
@@ -35,9 +34,9 @@ function ActiveAdjustments() {
       .then(d => setPatches(Array.isArray(d.patches) ? d.patches : []))
       .catch(() => setPatches([]));
   }, []);
-  
+
   if (!patches.length) return null;
-  
+
   return (
     <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-5 mb-8 border border-green-700/30 shadow-xl shadow-green-500/5 animate-fade-in">
       <h2 className="text-xl font-bold mb-1 flex items-center gap-2">
@@ -51,7 +50,7 @@ function ActiveAdjustments() {
         {patches.map((p, i) => {
           const colors = PATCH_CAT_COLOR[p.category || 'other'] || PATCH_CAT_COLOR.other;
           return (
-            <div key={p.id} 
+            <div key={p.id}
               className={`bg-gray-950/60 rounded-xl p-3 border-l-4 ${colors.border} transition-all duration-300 hover:scale-[1.02] animate-slide-in-left`}
               style={{ animationDelay: `${i * 100}ms` }}
             >
@@ -71,11 +70,15 @@ function ActiveAdjustments() {
 }
 
 export default function Home() {
-  const [phase, setPhase] = useState<PhaseKey>('foundation');
-  const [week, setWeek] = useState(1);
+  // The active user-facing planner is the 13-week SFRE Foundation program
+  // only. There is no generic phase (Foundation/Build/Peak) selector — this
+  // tracker never presents Bridge or MTI Peak session content. The current
+  // date resolves the default week; a user may still inspect any Foundation
+  // week via the selector below.
+  const [week, setWeek] = useState<number>(() => resolveFoundationWeekIndex(new Date()));
 
-  const workouts = PHASES[phase].weeks[week - 1];
-  const logKeyPrefix = `sfprep:log:${phase}:${week}`;
+  const workouts = FOUNDATION_WEEKS[week - 1];
+  const logKeyPrefix = `sfprep:log:foundation:${week}`;
 
   const exportLog = () => {
     if (typeof window === 'undefined') return;
@@ -95,11 +98,6 @@ export default function Home() {
     a.click(); URL.revokeObjectURL(url);
   };
 
-  const phaseGlobalWeek = useMemo(() => {
-    const idx = (['foundation','build','peak'] as const).indexOf(phase);
-    return idx * WEEKS_PER_PHASE + week;
-  }, [phase, week]);
-
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       {/* Animated background gradient */}
@@ -114,10 +112,10 @@ export default function Home() {
                 SF Prep Tracker
               </h1>
               <p className="text-gray-400 mt-2 text-lg">
-                Plan D — 18 Month Program · <span className="text-blue-400 font-semibold">Global Week {phaseGlobalWeek}/78</span>
+                SFRE Foundation · <span className="text-blue-400 font-semibold">Week {week}/{FOUNDATION_WEEK_COUNT}</span>
               </p>
             </div>
-            <button onClick={exportLog} 
+            <button onClick={exportLog}
               className="relative group overflow-hidden bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 px-5 py-2.5 rounded-full text-sm font-bold text-white shadow-lg shadow-emerald-900/30 transition-all duration-300 hover:scale-105 active:scale-95"
             >
               <span className="relative z-10 flex items-center gap-2">
@@ -134,44 +132,18 @@ export default function Home() {
       <div className="max-w-7xl mx-auto p-4 -mt-6 relative z-10">
         <ActiveAdjustments />
 
-        {/* Phase Selector - Glass cards */}
-        <div className="bg-gray-900/60 backdrop-blur-md rounded-2xl p-5 border border-gray-800/50 shadow-xl mb-6">
-          <label className="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-3">Select Program Phase</label>
-          <div className="flex gap-3 flex-wrap">
-            {(['foundation','build','peak'] as PhaseKey[]).map((k, i) => (
-              <button key={k} onClick={() => { setPhase(k); setWeek(1); }}
-                className={`
-                  relative px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 overflow-hidden flex-1 min-w-[200px] text-left border
-                  ${phase === k 
-                    ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white border-blue-500/50 shadow-lg shadow-blue-500/20 scale-105' 
-                    : 'bg-gray-800/40 text-gray-300 hover:bg-gray-800/80 border-gray-700/50 hover:border-gray-600'
-                  }
-                `}
-              >
-                <div className="relative z-10">
-                  <div className="text-base">{PHASES[k].label}</div>
-                  <div className={`text-xs mt-1 ${phase === k ? 'text-blue-100' : 'text-gray-400'}`}>{PHASES[k].months}</div>
-                </div>
-                {phase === k && (
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -skew-x-12 animate-shine" />
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* Week Selector */}
         <div className="bg-gray-900/60 backdrop-blur-md rounded-2xl p-5 border border-gray-800/50 shadow-xl mb-8 flex items-center justify-between flex-wrap gap-4">
           <div>
             <h3 className="text-lg font-bold text-white">Current Week Schedule</h3>
-            <p className="text-sm text-gray-400">Select which week of the {PHASES[phase].label} phase you are in</p>
+            <p className="text-sm text-gray-400">Select which week of the 13-week SFRE Foundation program to inspect</p>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm font-semibold text-gray-300">Jump to:</span>
             <select value={week} onChange={e => setWeek(Number(e.target.value))}
               className="bg-gray-800 hover:bg-gray-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
             >
-              {Array.from({ length: WEEKS_PER_PHASE }, (_, i) => (
+              {Array.from({ length: FOUNDATION_WEEK_COUNT }, (_, i) => (
                 <option key={i + 1} value={i + 1}>Week {i + 1}</option>
               ))}
             </select>
@@ -182,7 +154,7 @@ export default function Home() {
         <div className="space-y-4">
           {DAYS.map((d, i) => (
             <div key={d} className="animate-slide-in-left" style={{ animationDelay: `${i * 80}ms` }}>
-              <WorkoutDay day={d} workout={workouts[d]} logKeyPrefix={logKeyPrefix} />
+              <WorkoutDay day={d} workout={workouts[d]} logKeyPrefix={logKeyPrefix} foundationWeek={week} />
             </div>
           ))}
         </div>

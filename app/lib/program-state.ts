@@ -1,6 +1,21 @@
-export const PLAN_D_START = new Date('2026-07-06T00:00:00Z');
-export const WEEKS_PER_PHASE = 26;
-export const RUCK_GATE_SECONDS = 16 * 60;
+// Compatibility adapter — DEPRECATED. All gate/lifecycle logic now lives in
+// `sfre-program.ts`, which is the single canonical policy owner. This module
+// only re-exports the equivalent pure functions/types under their legacy
+// names so any remaining legacy imports keep compiling during the
+// transition; it must never re-implement gate math independently.
+//
+// New code MUST import directly from `./sfre-program`.
+
+import {
+  FOUNDATION_START as PLAN_D_START,
+  STRICT_RUCK_GATE_SECONDS as RUCK_GATE_SECONDS,
+  canonicalTwoMileSeconds,
+  resolveFoundationWeekIndex,
+  resolveStrictRuckGate,
+  type StandardsHistorySnapshot,
+} from './sfre-program.ts';
+
+export { PLAN_D_START, RUCK_GATE_SECONDS };
 
 export type ProgramPhase = 'foundation' | 'build' | 'peak';
 
@@ -17,9 +32,7 @@ export type TwoMileHistoryPoint = {
   value: number;
 };
 
-export type StandardsSnapshot = {
-  history?: Record<string, TwoMileHistoryPoint[]>;
-} | null | undefined;
+export type StandardsSnapshot = StandardsHistorySnapshot;
 
 export type ProgressSnapshot = {
   runPace?: Array<{ date: string; value: number }>;
@@ -33,36 +46,27 @@ export type RuckReadiness = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const PHASES: ProgramPhase[] = ['foundation', 'build', 'peak'];
 
+/**
+ * Legacy shape adapter over the canonical Foundation week index. The active
+ * program is Foundation-only (13 weeks), so phase is always 'foundation' and
+ * globalWeek/phaseWeek both mirror the canonical week index.
+ */
 export function getProgramPosition(date: Date, start: Date = PLAN_D_START): ProgramPosition {
   const elapsedDays = Math.max(0, Math.floor((date.getTime() - start.getTime()) / DAY_MS));
   const day = elapsedDays + 1;
-  const globalWeek = Math.ceil(day / 7);
-  const phaseIndex = Math.min(PHASES.length - 1, Math.floor((globalWeek - 1) / WEEKS_PER_PHASE));
-  const phaseWeek = Math.min(WEEKS_PER_PHASE, globalWeek - phaseIndex * WEEKS_PER_PHASE);
-
-  return { day, globalWeek, phase: PHASES[phaseIndex], phaseWeek };
-}
-
-function newestValid<T extends { date: string; value: number }>(entries: T[] | undefined): T | null {
-  if (!entries) return null;
-  return entries
-    .filter(entry => Number.isFinite(entry.value) && Boolean(entry.date))
-    .sort((a, b) => `${a.date}${'recordedAt' in a ? a.recordedAt || '' : ''}`.localeCompare(`${b.date}${'recordedAt' in b ? b.recordedAt || '' : ''}`))
-    .at(-1) ?? null;
+  const week = resolveFoundationWeekIndex(date, start);
+  return { day, globalWeek: week, phase: 'foundation', phaseWeek: week };
 }
 
 /**
- * Only `standards.history.twoMileRun` is a valid canonical two-mile source.
- * There is intentionally NO fallback to `progress.runPace` — that field is a
- * generic training-pace log, not a certified two-mile time, and using it to
- * clear the ruck gate was an ambiguity bug. Returns null when no valid
- * standards entry exists; callers must not substitute a progress-only value.
+ * Delegates to the canonical `canonicalTwoMileSeconds`. There is intentionally
+ * NO fallback to a generic progress pace field — that ambiguity was the bug
+ * this refactor removes. `_progress` is accepted only for call-site
+ * compatibility and is never read.
  */
 export function latestTwoMileSeconds(standards: StandardsSnapshot, _progress: ProgressSnapshot): number | null {
-  const standardsPoint = newestValid(standards?.history?.twoMileRun);
-  return standardsPoint ? standardsPoint.value : null;
+  return canonicalTwoMileSeconds(standards);
 }
 
 export function resolveRuckReadiness(globalWeek: number, twoMileSeconds: number | null): RuckReadiness {
@@ -70,8 +74,9 @@ export function resolveRuckReadiness(globalWeek: number, twoMileSeconds: number 
   if (!scheduled) {
     return { scheduled: false, status: 'not-scheduled', gateSeconds: RUCK_GATE_SECONDS, substitute: null };
   }
-  if (twoMileSeconds === null || twoMileSeconds > RUCK_GATE_SECONDS) {
-    return { scheduled: true, status: 'blocked', gateSeconds: RUCK_GATE_SECONDS, substitute: 'Easy Long Walk / Recovery' };
+  const gate = resolveStrictRuckGate(twoMileSeconds);
+  if (!gate.cleared) {
+    return { scheduled: true, status: 'blocked', gateSeconds: gate.gateSeconds, substitute: 'Easy Long Walk / Recovery' };
   }
-  return { scheduled: true, status: 'cleared', gateSeconds: RUCK_GATE_SECONDS, substitute: null };
+  return { scheduled: true, status: 'cleared', gateSeconds: gate.gateSeconds, substitute: null };
 }

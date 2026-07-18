@@ -167,3 +167,149 @@ export function resolveBodyweightTrend(points: BodyweightPoint[]): BodyweightTre
   if (Math.abs(delta) <= HOLD_BAND_LBS) return 'hold';
   return delta < 0 ? 'increase_100_150' : 'decrease_100_150';
 }
+
+// --- Foundation week index ---------------------------------------------------
+
+/**
+ * One-based Foundation week (1..FOUNDATION_WEEKS), clamped at both ends.
+ * This is the ONLY week-index resolver for the active 13-week Foundation
+ * renderer — there is no 78-week global-week concept in this module.
+ */
+export function resolveFoundationWeekIndex(date: Date, foundationStart: Date = FOUNDATION_START): number {
+  const elapsedDays = Math.max(0, Math.floor((date.getTime() - foundationStart.getTime()) / DAY_MS));
+  const week = Math.floor(elapsedDays / 7) + 1;
+  return Math.min(FOUNDATION_WEEKS, Math.max(1, week));
+}
+
+// --- Friday session prescription --------------------------------------------
+
+export type FridayPrescriptionStep = {
+  name: string;
+  durationSeconds: number;
+};
+
+export type FridayPrescription = {
+  kind: 'friday_pt_test';
+  steps: FridayPrescriptionStep[];
+};
+
+/**
+ * Friday is a fixed PT-test sequence: fasted weigh-in, 2-minute HRPU,
+ * 5-minute rest, 2-minute sit-ups — always in that order.
+ */
+export function resolveFridayPrescription(): FridayPrescription {
+  return {
+    kind: 'friday_pt_test',
+    steps: [
+      { name: 'Fasted Weigh-In', durationSeconds: 0 },
+      { name: '2-Minute HRPU (Max Push-ups)', durationSeconds: 120 },
+      { name: 'Rest', durationSeconds: 300 },
+      { name: '2-Minute Sit-ups', durationSeconds: 120 },
+    ],
+  };
+}
+
+// --- Thursday protected recovery ---------------------------------------------
+
+export type ThursdayRecoveryPolicy = {
+  protected: boolean;
+  allowMakeupStrength: boolean;
+};
+
+/**
+ * Thursday is protected recovery. It is NEVER a strength make-up day —
+ * this is a fixed policy fact, not a derived one.
+ */
+export function resolveThursdayRecoveryPolicy(): ThursdayRecoveryPolicy {
+  return { protected: true, allowMakeupStrength: false };
+}
+
+// --- Foundation week 10+ hard tempo cap --------------------------------------
+
+export type FoundationTempoCap = {
+  hardTempoCapMiles: number | null;
+  extensionPolicy: 'none' | 'easy_only';
+};
+
+const TEMPO_CAP_START_WEEK = 10;
+const TEMPO_CAP_MILES = 3;
+
+/**
+ * From Foundation week 10 onward the hard tempo portion of the Saturday
+ * session is capped at 3 miles. Any distance beyond the cap must be
+ * explicitly easy — never additional hard tempo volume.
+ */
+export function resolveFoundationTempoCap(foundationWeek: number): FoundationTempoCap {
+  if (foundationWeek < TEMPO_CAP_START_WEEK) {
+    return { hardTempoCapMiles: null, extensionPolicy: 'none' };
+  }
+  return { hardTempoCapMiles: TEMPO_CAP_MILES, extensionPolicy: 'easy_only' };
+}
+
+// --- Saturday ruck-or-substitute session decision ----------------------------
+
+const SUBSTITUTE_SESSION = 'Easy Long Walk / Recovery' as const;
+
+export type FoundationSaturdaySession =
+  | { kind: 'not_scheduled' }
+  | { kind: 'ruck_locked'; substitute: typeof SUBSTITUTE_SESSION; lockReason: string }
+  | { kind: 'ruck_cleared'; mode: 'walking_only' };
+
+function ruckScheduledForWeek(foundationWeek: number): boolean {
+  return foundationWeek >= 7 && foundationWeek % 2 === 1;
+}
+
+function lockReasonFor(gate: StrictRuckGateResult): string {
+  return `Ruck locked: two-mile gate requires \u2264 ${gate.gateSeconds}s. Standard not met.`;
+}
+
+/**
+ * Pure Foundation Saturday session resolver. A scheduled ruck with an unmet
+ * gate is REPLACED by the prescribed Easy Long Walk / Recovery substitute —
+ * the original ruck decision is locked, not merely annotated. A cleared
+ * ruck remains WALKING ONLY; this module never renders a running-ruck mode.
+ */
+export function resolveFoundationSaturdaySession(
+  foundationWeek: number,
+  twoMileSeconds: number | null,
+): FoundationSaturdaySession {
+  if (!ruckScheduledForWeek(foundationWeek)) {
+    return { kind: 'not_scheduled' };
+  }
+
+  const gate = resolveStrictRuckGate(twoMileSeconds);
+  if (!gate.cleared) {
+    return { kind: 'ruck_locked', substitute: SUBSTITUTE_SESSION, lockReason: lockReasonFor(gate) };
+  }
+  return { kind: 'ruck_cleared', mode: 'walking_only' };
+}
+
+// --- Ruck completion lock -----------------------------------------------------
+
+export type RuckLockState =
+  | { locked: false }
+  | { locked: true; reason: string; substitute: typeof SUBSTITUTE_SESSION };
+
+/**
+ * Whether a scheduled ruck session is mechanically locked for completion/log
+ * writes. Unscheduled and cleared rucks are never locked; a scheduled ruck
+ * with an unmet gate is always locked, and callers MUST honor this before
+ * allowing a completion toggle or a log save.
+ */
+export function resolveRuckLockState(foundationWeek: number, twoMileSeconds: number | null): RuckLockState {
+  const session = resolveFoundationSaturdaySession(foundationWeek, twoMileSeconds);
+  if (session.kind !== 'ruck_locked') {
+    return { locked: false };
+  }
+  return { locked: true, reason: session.lockReason, substitute: session.substitute };
+}
+
+/**
+ * Smallest pure completion guard: given whether an exercise is locked,
+ * returns whether toggling completion is allowed. UI components must gate
+ * every completion toggle and log-save path through this (or the richer
+ * resolveRuckLockState) rather than re-deriving eligibility inline.
+ */
+export function canToggleCompletion(locked: boolean): boolean {
+  return !locked;
+}

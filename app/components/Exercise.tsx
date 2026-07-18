@@ -20,6 +20,8 @@ interface ExerciseProps {
   logKeyBase: string;      // e.g. sfprep:log:foundation:1:monday:<exId>
   isCompleted: boolean;
   onToggleComplete: () => void;
+  locked?: boolean;
+  lockReason?: string;
 }
 
 type LogEntry = {
@@ -35,7 +37,7 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete }: ExerciseProps) {
+export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete, locked = false, lockReason }: ExerciseProps) {
   const [showVideo, setShowVideo] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [entry, setEntry] = useState<LogEntry>({ date: todayISO() });
@@ -60,6 +62,7 @@ export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete }
   }, [logKey]);
 
   const save = () => {
+    if (locked) return; // mechanically impossible to write a new log while locked
     if (typeof window === 'undefined') return;
     localStorage.setItem(logKey, JSON.stringify(entry));
     void pushSfprepSync();
@@ -68,24 +71,34 @@ export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete }
   };
 
   return (
-    <div className={`p-3 rounded ${isCompleted ? 'bg-gray-700' : 'bg-gray-750'}`}>
+    <div className={`p-3 rounded ${isCompleted ? 'bg-gray-700' : 'bg-gray-750'} ${locked ? 'opacity-75' : ''}`}>
       <div className="flex justify-between items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
             <button
               onClick={onToggleComplete}
+              disabled={locked}
+              aria-disabled={locked}
+              aria-label={locked ? `toggle complete (locked: ${lockReason ?? 'session locked'})` : 'toggle complete'}
+              title={locked ? lockReason : undefined}
               className={`w-6 h-6 shrink-0 rounded border-2 flex items-center justify-center ${
-                isCompleted ? 'bg-blue-600 border-blue-600' : 'border-gray-500 hover:border-gray-400'
+                locked
+                  ? 'border-gray-700 bg-gray-800 cursor-not-allowed opacity-60'
+                  : isCompleted ? 'bg-blue-600 border-blue-600' : 'border-gray-500 hover:border-gray-400'
               }`}
-              aria-label="toggle complete"
             >
-              {isCompleted && (
+              {isCompleted && !locked && (
                 <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                 </svg>
               )}
+              {locked && (
+                <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              )}
             </button>
-            <h3 className={`font-medium ${isCompleted ? 'line-through text-gray-500' : ''}`}>{exercise.name}</h3>
+            <h3 className={`font-medium ${isCompleted && !locked ? 'line-through text-gray-500' : ''}`}>{exercise.name}</h3>
           </div>
           <div className="ml-9 mt-1 text-sm text-gray-400 flex flex-wrap gap-x-3">
             {exercise.sets ? <span>{exercise.sets} sets</span> : null}
@@ -94,6 +107,11 @@ export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete }
             {exercise.distance ? <span>{exercise.distance}</span> : null}
             {exercise.weight ? <span>{exercise.weight}</span> : null}
           </div>
+          {locked && (
+            <p role="status" className="ml-9 mt-2 text-xs text-red-400">
+              Locked{lockReason ? `: ${lockReason}` : ''}
+            </p>
+          )}
           {exercise.notes && (
             <p className="ml-9 mt-2 text-xs text-gray-500 italic">{exercise.notes}</p>
           )}
@@ -115,14 +133,19 @@ export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete }
           )}
           <button
             onClick={() => setShowLog(l => !l)}
-            className="bg-emerald-700 hover:bg-emerald-600 px-3 py-1 rounded text-xs"
+            disabled={locked}
+            aria-disabled={locked}
+            title={locked ? lockReason : undefined}
+            className={`px-3 py-1 rounded text-xs ${
+              locked ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-emerald-700 hover:bg-emerald-600'
+            }`}
           >
             {showLog ? 'Close' : 'Log'}
           </button>
         </div>
       </div>
 
-      {showLog && (
+      {showLog && !locked && (
         <div className="mt-3 ml-9 p-3 bg-gray-900 rounded space-y-2 border border-gray-700">
           <div className="grid grid-cols-2 gap-2">
             <label className="text-xs text-gray-400">
