@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { WorkoutDay } from './components/WorkoutDay';
 import { SfreLifecycle } from './components/SfreLifecycle';
 import { Nav } from './components/Nav';
@@ -8,67 +8,6 @@ import { FOUNDATION_WEEKS, FOUNDATION_WEEK_COUNT } from './data/workouts';
 import { resolveFoundationWeekIndex } from './lib/sfre-program';
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] as const;
-
-type Patch = {
-  id: string;
-  title: string;
-  action?: string;
-  category?: string;
-  source?: string;
-  approved_at?: string;
-};
-
-const PATCH_CAT_COLOR: Record<string, { border: string; bg: string; text: string }> = {
-  run: { border: 'border-blue-500', bg: 'bg-blue-500/10', text: 'text-blue-400' },
-  ruck: { border: 'border-amber-500', bg: 'bg-amber-500/10', text: 'text-amber-400' },
-  strength: { border: 'border-emerald-500', bg: 'bg-emerald-500/10', text: 'text-emerald-400' },
-  nutrition: { border: 'border-purple-500', bg: 'bg-purple-500/10', text: 'text-purple-400' },
-  recovery: { border: 'border-cyan-500', bg: 'bg-cyan-500/10', text: 'text-cyan-400' },
-  other: { border: 'border-gray-500', bg: 'bg-gray-500/10', text: 'text-gray-400' },
-};
-
-function ActiveAdjustments() {
-  const [patches, setPatches] = useState<Patch[]>([]);
-  useEffect(() => {
-    fetch('/api/patches')
-      .then(r => r.json())
-      .then(d => setPatches(Array.isArray(d.patches) ? d.patches : []))
-      .catch(() => setPatches([]));
-  }, []);
-
-  if (!patches.length) return null;
-
-  return (
-    <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-5 mb-8 border border-green-700/30 shadow-xl shadow-green-500/5 animate-fade-in">
-      <h2 className="text-xl font-bold mb-1 flex items-center gap-2">
-        <span>Active Adjustments</span>
-        <span className="text-xs bg-green-500/20 text-green-400 font-semibold px-2.5 py-0.5 rounded-full">
-          {patches.length} active
-        </span>
-      </h2>
-      <p className="text-xs text-gray-400 mb-4">Research changes you approved. Fold these into the sessions below.</p>
-      <div className="grid sm:grid-cols-2 gap-3">
-        {patches.map((p, i) => {
-          const colors = PATCH_CAT_COLOR[p.category || 'other'] || PATCH_CAT_COLOR.other;
-          return (
-            <div key={p.id}
-              className={`bg-gray-950/60 rounded-xl p-3 border-l-4 ${colors.border} transition-all duration-300 hover:scale-[1.02] animate-slide-in-left`}
-              style={{ animationDelay: `${i * 100}ms` }}
-            >
-              <div className="text-sm font-semibold text-white">{p.title}</div>
-              {p.action && <div className="text-xs text-gray-300 mt-1">{p.action}</div>}
-              {p.category && (
-                <span className={`inline-block text-[10px] uppercase font-bold tracking-wider mt-2 px-2 py-0.5 rounded ${colors.bg} ${colors.text}`}>
-                  {p.category}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 export default function Home() {
   // The active user-facing planner is the 13-week SFRE Foundation program
@@ -132,7 +71,6 @@ export default function Home() {
 
       <div className="max-w-7xl mx-auto p-4 -mt-6 relative z-10">
         <SfreLifecycle />
-        <ActiveAdjustments />
 
         {/* Week Selector */}
         <div className="bg-gray-900/60 backdrop-blur-md rounded-2xl p-5 border border-gray-800/50 shadow-xl mb-8 flex items-center justify-between flex-wrap gap-4">
