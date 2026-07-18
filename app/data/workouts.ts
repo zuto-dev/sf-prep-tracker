@@ -112,6 +112,9 @@ type Params = {
   speedRun: string;       // Tuesday
   recoveryRun: string;    // Thursday
   tempoOrEvent: { name: string; prescription: string; distance?: string; weight?: string };  // Saturday
+  // True from Foundation week 10+: hard tempo portion is capped at 3 miles;
+  // an explicit optional easy-only extension exercise must render alongside it.
+  tempoCapped?: boolean;
   // Pull-up block
   pullTotal: string;      // e.g. "10x3", "6x5"
   // Strength load
@@ -217,6 +220,13 @@ function buildWeek(phase: PhaseKey, weekIdx: number, p: Params, testEvent?: stri
                 ? 'WALK only. Weight HIGH and TIGHT. Sternum strap clipped. First hot spot = STOP, tape.'
                 : 'RPE 6-7. Short sentences only. Can\'t speak = too fast. Even splits, don\'t fade.'),
         }),
+        ...(p.tempoCapped
+          ? [sat.ex({
+              name: 'Optional Easy Extension',
+              duration: '1-2 mi EASY only',
+              notes: 'Optional. RPE 3-4 only, conversational — never additional hard-effort volume. Skip entirely if legs are cooked from the 3-mile hard portion.',
+            })]
+          : []),
         sat.ex({ name: 'Cool-down', duration: '5-10 min easy walk' }),
       ],
     },
@@ -280,15 +290,22 @@ function paramsForWeek(globalWeek: number): Params {
   const isTest = testWeeks.has(w);
 
   let tempoOrEvent: Params['tempoOrEvent'];
+  // Foundation week 10+ hard tempo cap (see sfre-program.ts resolveFoundationTempoCap):
+  // from week 10 onward the hard tempo portion is capped at exactly 3 miles;
+  // any additional distance must render as an explicit, separate easy-only
+  // extension — never as additional hard tempo volume.
+  let tempoCapped = false;
   if (isTest) {
     tempoOrEvent = { name: '2-Mile Time Trial', prescription: '2 miles ALL OUT (flat measured course)' };
   } else if (ruckWeek) {
     const r = ruckParamsForWeek(w);
     tempoOrEvent = { name: 'Ruck', prescription: r.duration, distance: r.distance, weight: r.weight };
+  } else if (w >= 10 && w <= 26) {
+    tempoOrEvent = { name: 'Tempo Run', prescription: '3 mi at tempo' };
+    tempoCapped = true;
   } else {
     let tempoDist = '15-20 min tempo after 5 min easy jog';
     if (w >= 6 && w <= 9) tempoDist = '2-3 mi at tempo';
-    else if (w >= 10 && w <= 26) tempoDist = '3-5 mi at tempo';
     else if (w >= 27 && w <= 52) tempoDist = '4-6 mi at tempo';
     else if (w >= 53) tempoDist = '5-7 mi at tempo';
     tempoOrEvent = { name: 'Tempo Run', prescription: tempoDist };
@@ -318,12 +335,13 @@ function paramsForWeek(globalWeek: number): Params {
     pullTotal = '5x3 easy';
     wcRounds = 2;
     if (!isTest) tempoOrEvent = { name: 'Easy Long Walk / Recovery', prescription: '45-60 min easy walk or light jog' };
+    tempoCapped = false;
   }
 
   const pool = w >= 6 ? '15-20 min easy laps + 2x2 min tread + 10 controlled bobs' : undefined;
 
   return {
-    easyRun, speedRun, recoveryRun, tempoOrEvent, pullTotal,
+    easyRun, speedRun, recoveryRun, tempoOrEvent, tempoCapped, pullTotal,
     pressReps, pullReps, splitSqReps, gobletReps, rdlReps, stepReps, wcRounds, pool,
   };
 }
