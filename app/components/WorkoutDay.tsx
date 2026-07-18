@@ -4,13 +4,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Exercise } from './Exercise';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 import { deriveWorkoutHistory, deriveDayVolume, calculateAdaptiveLoad, acwrZone, acwrZoneColor } from '../lib/adaptive-engine';
-import { getProgramPosition, latestTwoMileSeconds, resolveRuckReadiness } from '../lib/program-state';
+import { canonicalTwoMileSeconds, isLockableRuckExercise, resolveRuckLockState } from '../lib/sfre-program';
 import type { DayWorkout } from '../data/workouts';
 
 interface WorkoutDayProps {
   day: string;
   workout: DayWorkout;
   logKeyPrefix: string; // sfprep:log:foundation:1
+  foundationWeek: number;
 }
 
 function completedKey(day: string, logKeyPrefix: string) {
@@ -29,11 +30,12 @@ function loadCompleted(key: string) {
   }
 }
 
-export function WorkoutDay({ day, workout, logKeyPrefix }: WorkoutDayProps) {
+export function WorkoutDay({ day, workout, logKeyPrefix, foundationWeek }: WorkoutDayProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [completed, setCompleted] = useState<Set<string>>(new Set());
   const [adaptive, setAdaptive] = useState<{ acwr: number; recommendation: string } | null>(null);
   const [dayVolume, setDayVolume] = useState({ loggedVolumeLbs: 0, sessionsLogged: 0 });
+  const [twoMileSeconds, setTwoMileSeconds] = useState<number | null>(null);
   const key = completedKey(day, logKeyPrefix);
 
   useEffect(() => {
@@ -41,6 +43,7 @@ export function WorkoutDay({ day, workout, logKeyPrefix }: WorkoutDayProps) {
     void pullSfprepSync().finally(() => {
       setCompleted(loadCompleted(key));
       refreshAdaptive();
+      refreshTwoMile();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
@@ -53,13 +56,29 @@ export function WorkoutDay({ day, workout, logKeyPrefix }: WorkoutDayProps) {
     setAdaptive({ acwr: result.acwr, recommendation: result.recommendation });
   }
 
+  function refreshTwoMile() {
+    if (typeof window === 'undefined') return;
+    try {
+      const standardsRaw = localStorage.getItem('sfprep:standards');
+      const standards = standardsRaw ? JSON.parse(standardsRaw) : null;
+      setTwoMileSeconds(canonicalTwoMileSeconds(standards));
+    } catch {
+      setTwoMileSeconds(null);
+    }
+  }
+
+  // Single canonical ruck-lock decision for this day's session, owned by the
+  // pure sfre-program policy. No local eligibility math lives here.
+  const ruckLock = useMemo(() => resolveRuckLockState(foundationWeek, twoMileSeconds), [foundationWeek, twoMileSeconds]);
+
   const persistCompleted = (next: Set<string>) => {
     if (typeof window === 'undefined') return;
     localStorage.setItem(key, JSON.stringify([...next]));
     void pushSfprepSync();
   };
 
-  const toggle = (id: string) => {
+  const toggle = (id: string, locked: boolean) => {
+    if (locked) return; // mechanically impossible to complete a locked ruck
     setCompleted(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
@@ -145,50 +164,50 @@ export function WorkoutDay({ day, workout, logKeyPrefix }: WorkoutDayProps) {
             )}
             {workout.exercises.map((ex, idx) => {
               const id = ex.id ?? `${day}-${idx}`;
-              const isRuck = ex.name.toLowerCase().includes('ruck');
-              
-              let ruckReadiness = null;
-              if (isRuck) {
-                // Get current program position
-                const position = getProgramPosition(new Date());
-                const globalWeek = position.globalWeek;
-                
-                // Get latest 2-mile time
-                const standardsRaw = localStorage.getItem('sfprep:standards');
-                const progressRaw = localStorage.getItem('sfprep:progress');
-                const standards = standardsRaw ? JSON.parse(standardsRaw) : null;
-                const progress = progressRaw ? JSON.parse(progressRaw) : null;
-                const twoMileSeconds = latestTwoMileSeconds(standards, progress);
-                
-                // Check readiness
-                const readiness = resolveRuckReadiness(globalWeek, twoMileSeconds);
-                if (readiness.status === 'blocked') {
-                  ruckReadiness = {
-                    canRuck: false,
-                    message: `Ruck blocked until 2-mile ≤ 16:00. Current: ${twoMileSeconds ? `${Math.floor(twoMileSeconds / 60)}:${(twoMileSeconds % 60).toString().padStart(2, '0')}` : 'not logged'}. Substitute: ${readiness.substitute}`
-                  };
-                }
-              }
-              
+              const isRuck = isLockableRuckExercise(day, ex.name);
+              const locked = isRuck && ruckLock.locked;
+              const substituteId = `${id}:substitute`;
+
               return (
                 <div key={id}>
-                  {isRuck && ruckReadiness && !ruckReadiness.canRuck && (
-                    <div className="rounded-xl p-3 mb-3 border text-xs bg-red-500/10 border-red-500/30 text-red-400">
-                      <div className="flex items-center gap-2 mb-1">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        <span className="font-bold uppercase tracking-wider">Ruck Readiness Gate</span>
+                  {locked && ruckLock.locked && (
+                    <>
+                      <div
+                        role="alert"
+                        aria-live="polite"
+                        className="rounded-xl p-3 mb-3 border text-xs bg-red-500/10 border-red-500/30 text-red-400"
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          <span className="font-bold uppercase tracking-wider">Ruck Locked</span>
+                        </div>
+                        <p>{ruckLock.reason}</p>
                       </div>
-                      <p>{ruckReadiness.message}</p>
-                    </div>
+                      <Exercise
+                        key={substituteId}
+                        exercise={{
+                          id: substituteId,
+                          name: ruckLock.substitute,
+                          duration: 'As prescribed',
+                          notes: 'Prescribed substitute for a locked ruck: easy pace, no weighted load, no rucksack. Walk conversational pace only — this session is recovery, not a make-up ruck. Stop early on any hot spot or joint pain.',
+                        }}
+                        logKeyBase={`${logKeyPrefix}:${day}:${substituteId}`}
+                        isCompleted={completed.has(substituteId)}
+                        onToggleComplete={() => toggle(substituteId, false)}
+                        locked={false}
+                      />
+                    </>
                   )}
                   <Exercise
                     key={id}
                     exercise={ex}
                     logKeyBase={`${logKeyPrefix}:${day}:${id}`}
                     isCompleted={completed.has(id)}
-                    onToggleComplete={() => toggle(id)}
+                    onToggleComplete={() => toggle(id, locked)}
+                    locked={locked}
+                    lockReason={locked && ruckLock.locked ? ruckLock.reason : undefined}
                   />
                 </div>
               );

@@ -1,7 +1,7 @@
-// SF Prep Tracker — full 18-month program derived from PLAN-D-SOURCE.txt.
-// Structure: Phase → Week → Day → Exercise
-// PLAN-D-SOURCE is a 13-week Foundation block; we extend it via progressive-overload
-// rules stated in the doc across 3 phases × 26 weeks each = 78 weeks (18 months).
+// SF Prep Tracker — the 13-week SFRE Foundation program derived from
+// PLAN-D-SOURCE.txt. Structure: Week → Day → Exercise.
+// This catalog renders ONLY the 13-week Foundation block. There is no
+// Bridge or MTI Peak session content here by design.
 
 export type Exercise = {
   id: string;              // stable id per week/day, used for localStorage keys
@@ -79,7 +79,7 @@ const vid = (n: string): string | undefined => {
 // Research changes approved 2026-07-16
 const runWarmup = (id: string): Exercise => ({
   id, name: 'Run Warm-Up',
-  duration: '5 min', notes: 'Brisk walk 2min → leg swings 10/leg front+side → 20 walking lunges → 10 bodyweight squats → 2min easy jog. For Tuesday/Saturday run days, ensure 2h post-run protein meal consumed.',
+  duration: '5 min', notes: 'Brisk walk 2min → leg swings 10/leg front+side → 20 walking lunges → 10 bodyweight squats → 2min easy jog. For Tuesday/Saturday run days, get protein + carbs in within the surrounding hours around the run — doesn\'t need to be an exact post-run clock.',
 });
 
 const liftWarmup = (id: string): Exercise => ({
@@ -112,6 +112,9 @@ type Params = {
   speedRun: string;       // Tuesday
   recoveryRun: string;    // Thursday
   tempoOrEvent: { name: string; prescription: string; distance?: string; weight?: string };  // Saturday
+  // True from Foundation week 10+: hard tempo portion is capped at 3 miles;
+  // an explicit optional easy-only extension exercise must render alongside it.
+  tempoCapped?: boolean;
   // Pull-up block
   pullTotal: string;      // e.g. "10x3", "6x5"
   // Strength load
@@ -184,7 +187,7 @@ function buildWeek(phase: PhaseKey, weekIdx: number, p: Params, testEvent?: stri
       title: 'PT test + work capacity + pull-up block',
       exercises: [
         fri.ex({ name: 'Fasted Weigh-In', notes: 'After bathroom, before coffee/food. Log with PT numbers.' }),
-        fri.ex({ name: '2-min Max Push-ups (PT Test)', duration: '2 min', videoId: vid('Push-ups'), notes: 'Full range, chest low, full lockout. Rest only in up-plank. Cheat reps steal your own data.' }),
+        fri.ex({ name: '2-Minute HRPU (Max Push-ups)', duration: '2 min', videoId: vid('Push-ups'), notes: 'Hand-release standard: chest/hips touch down, hands lift fully off the ground at the bottom before pressing back up. Full range, full lockout at top. Rest only in up-plank. Cheat reps steal your own data.' }),
         fri.ex({ name: 'Rest', duration: '5 min' }),
         fri.ex({ name: '2-min Max Sit-ups (PT Test)', duration: '2 min', videoId: vid('Sit-ups'), notes: 'Feet anchored, blades touch down, torso all the way up.' }),
         liftWarmup(`${fri.id}:warm`),
@@ -217,6 +220,13 @@ function buildWeek(phase: PhaseKey, weekIdx: number, p: Params, testEvent?: stri
                 ? 'WALK only. Weight HIGH and TIGHT. Sternum strap clipped. First hot spot = STOP, tape.'
                 : 'RPE 6-7. Short sentences only. Can\'t speak = too fast. Even splits, don\'t fade.'),
         }),
+        ...(p.tempoCapped
+          ? [sat.ex({
+              name: 'Optional Easy Extension',
+              duration: '1-2 mi EASY only',
+              notes: 'Optional. RPE 3-4 only, conversational — never additional hard-effort volume. Skip entirely if legs are cooked from the 3-mile hard portion.',
+            })]
+          : []),
         sat.ex({ name: 'Cool-down', duration: '5-10 min easy walk' }),
       ],
     },
@@ -280,15 +290,22 @@ function paramsForWeek(globalWeek: number): Params {
   const isTest = testWeeks.has(w);
 
   let tempoOrEvent: Params['tempoOrEvent'];
+  // Foundation week 10+ hard tempo cap (see sfre-program.ts resolveFoundationTempoCap):
+  // from week 10 onward the hard tempo portion is capped at exactly 3 miles;
+  // any additional distance must render as an explicit, separate easy-only
+  // extension — never as additional hard tempo volume.
+  let tempoCapped = false;
   if (isTest) {
     tempoOrEvent = { name: '2-Mile Time Trial', prescription: '2 miles ALL OUT (flat measured course)' };
   } else if (ruckWeek) {
     const r = ruckParamsForWeek(w);
     tempoOrEvent = { name: 'Ruck', prescription: r.duration, distance: r.distance, weight: r.weight };
+  } else if (w >= 10 && w <= 26) {
+    tempoOrEvent = { name: 'Tempo Run', prescription: '3 mi at tempo' };
+    tempoCapped = true;
   } else {
     let tempoDist = '15-20 min tempo after 5 min easy jog';
     if (w >= 6 && w <= 9) tempoDist = '2-3 mi at tempo';
-    else if (w >= 10 && w <= 26) tempoDist = '3-5 mi at tempo';
     else if (w >= 27 && w <= 52) tempoDist = '4-6 mi at tempo';
     else if (w >= 53) tempoDist = '5-7 mi at tempo';
     tempoOrEvent = { name: 'Tempo Run', prescription: tempoDist };
@@ -318,40 +335,28 @@ function paramsForWeek(globalWeek: number): Params {
     pullTotal = '5x3 easy';
     wcRounds = 2;
     if (!isTest) tempoOrEvent = { name: 'Easy Long Walk / Recovery', prescription: '45-60 min easy walk or light jog' };
+    tempoCapped = false;
   }
 
   const pool = w >= 6 ? '15-20 min easy laps + 2x2 min tread + 10 controlled bobs' : undefined;
 
   return {
-    easyRun, speedRun, recoveryRun, tempoOrEvent, pullTotal,
+    easyRun, speedRun, recoveryRun, tempoOrEvent, tempoCapped, pullTotal,
     pressReps, pullReps, splitSqReps, gobletReps, rdlReps, stepReps, wcRounds, pool,
   };
 }
 
-// ---------- Build all 78 weeks ----------
-export const PHASES: Record<PhaseKey, { label: string; months: string; weeks: WeekWorkout[] }> = {
-  foundation: { label: 'Foundation', months: 'Months 1-6', weeks: [] },
-  build:      { label: 'Build',      months: 'Months 7-12', weeks: [] },
-  peak:       { label: 'Peak',       months: 'Months 13-18', weeks: [] },
-};
+// ---------- Build the 13-week SFRE Foundation program ----------
+// This tracker renders ONLY the 13-week SFRE Foundation program. There is
+// no Bridge or MTI Peak session content in this catalog — those lifecycle
+// states (see sfre-program.ts resolveSfreLifecycle) intentionally emit no
+// UI content here; a later, separate workstream owns any such catalog.
+export const FOUNDATION_WEEK_COUNT = 13;
 
-for (let phaseIdx = 0; phaseIdx < 3; phaseIdx++) {
-  const phase: PhaseKey = (['foundation', 'build', 'peak'] as const)[phaseIdx];
-  for (let w = 0; w < 26; w++) {
-    const globalWeek = phaseIdx * 26 + w + 1;
-    const p = paramsForWeek(globalWeek);
-    const testWeeks = new Set([1, 5, 9, 13, 26, 39, 52, 65, 78]);
-    const testEvent = testWeeks.has(globalWeek) ? '2-Mile Time Trial (TEST)' : undefined;
-    PHASES[phase].weeks.push(buildWeek(phase, globalWeek, p, testEvent));
-  }
+export const FOUNDATION_WEEKS: WeekWorkout[] = [];
+for (let w = 1; w <= FOUNDATION_WEEK_COUNT; w++) {
+  const p = paramsForWeek(w);
+  const testWeeks = new Set([1, 5, 9, 13]);
+  const testEvent = testWeeks.has(w) ? '2-Mile Time Trial (TEST)' : undefined;
+  FOUNDATION_WEEKS.push(buildWeek('foundation', w, p, testEvent));
 }
-
-// Legacy shape for existing home page (kept for compat)
-export const workoutData = {
-  foundation: { weeks: PHASES.foundation.weeks },
-  build: { weeks: PHASES.build.weeks },
-  peak: { weeks: PHASES.peak.weeks },
-};
-
-export const PHASE_ORDER: PhaseKey[] = ['foundation', 'build', 'peak'];
-export const WEEKS_PER_PHASE = 26;

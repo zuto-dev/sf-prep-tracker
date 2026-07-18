@@ -11,6 +11,9 @@ import {
   type HistoryPoint,
   latestPoint,
 } from '../lib/sof-standards';
+import { hydrateLifecycleStore, type LifecycleStore } from '../lib/sfre-store';
+import { resolveSfreLifecyclePresentation } from '../lib/sfre-lifecycle-presentation';
+import { canonicalTwoMileSeconds, resolveStrictRuckGate } from '../lib/sfre-program';
 
 // SFAS standards pulled from official USAJFKSWCS docs:
 //  - SFAS Preparation Handbook (25 June 2025), 120 pg
@@ -59,7 +62,14 @@ function isTimeEvent(unit: string) {
 
 export default function StandardsPage() {
   const [store, setStore] = useState<Store>(empty);
-  useEffect(() => { void pullSfprepSync().finally(() => setStore(load())); }, []);
+  const [lifecycle, setLifecycle] = useState<LifecycleStore | null>(null);
+  useEffect(() => {
+    void pullSfprepSync().finally(() => {
+      setStore(load());
+      const storage = typeof window !== 'undefined' ? window.localStorage : null;
+      setLifecycle(hydrateLifecycleStore(storage));
+    });
+  }, []);
   const set = (patch: Partial<Store>) => { const s = { ...store, ...patch }; setStore(s); save(s); };
 
   const profile = SOF_PROFILES[store.activeProfile] ?? SOF_PROFILES.sfas;
@@ -99,6 +109,19 @@ export default function StandardsPage() {
       return { key, ev, point, evalResult };
     });
   }, [profile, store.history, store.activeProfile]);
+
+  const twoMileSeconds = useMemo(() => canonicalTwoMileSeconds(store), [store]);
+  const ruckGate = useMemo(() => resolveStrictRuckGate(twoMileSeconds), [twoMileSeconds]);
+  const readinessLifecycle = useMemo(() => {
+    if (!lifecycle) return null;
+    return resolveSfreLifecyclePresentation({
+      date: new Date(),
+      foundationStart: new Date(lifecycle.foundationStart),
+      confirmedSfreDate: lifecycle.confirmedSfreDate,
+    });
+  }, [lifecycle]);
+  const pullUpPoint = latestPoint(store.history, 'pullUps');
+  const hrpuPoint = latestPoint(store.history, 'hrPushups');
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
@@ -144,7 +167,51 @@ export default function StandardsPage() {
           </div>
         </div>
 
-        {/* Two-tier framing cards */}
+        {/* SFRE Readiness — Plan D + MTI coaching targets, not official cutoffs */}
+        <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-5 border border-purple-500/20 shadow-xl">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+            <h2 className="text-lg font-bold text-white">SFRE Readiness</h2>
+            <span className="text-[11px] text-purple-300 italic">
+              Plan D + MTI coaching targets — not official SFRE cutoffs.
+            </span>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-3 mt-4">
+            <div className="bg-gray-950/40 border border-gray-800/60 rounded-xl p-3.5">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-gray-500 mb-1">2-Mile (canonical)</div>
+              <div className="text-lg font-black text-white font-mono">{twoMileSeconds != null ? fmtTime(twoMileSeconds) : '—'}</div>
+              <div className="text-xs text-gray-400 mt-1">HRPU: {hrpuPoint ? hrpuPoint.value : '—'} · Pull-ups: {pullUpPoint ? pullUpPoint.value : '—'}</div>
+            </div>
+            <div className="bg-gray-950/40 border border-gray-800/60 rounded-xl p-3.5">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-gray-500 mb-1">Ruck Gate</div>
+              <div className={`text-sm font-bold ${ruckGate.cleared ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {ruckGate.cleared ? 'Cleared' : 'Locked'}
+              </div>
+              <div className="text-xs text-gray-400 mt-1">
+                {ruckGate.cleared
+                  ? `2-mile at or under ${fmtTime(ruckGate.gateSeconds)}`
+                  : `Next action: log a 2-mile at or under ${fmtTime(ruckGate.gateSeconds)}`}
+              </div>
+            </div>
+            <div className="bg-gray-950/40 border border-gray-800/60 rounded-xl p-3.5">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-gray-500 mb-1">Lifecycle / Peak Date</div>
+              {readinessLifecycle ? (
+                <>
+                  <div className="text-sm font-bold text-blue-300 capitalize">{readinessLifecycle.state.replace('_', ' ')}</div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    {readinessLifecycle.dateState === 'date_required'
+                      ? 'Confirm your SFRE date on Home to unlock a countdown.'
+                      : readinessLifecycle.daysUntilEvent !== null
+                        ? `${readinessLifecycle.daysUntilEvent} days to event`
+                        : '—'}
+                  </div>
+                </>
+              ) : (
+                <div className="text-sm text-gray-500">Loading…</div>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="grid md:grid-cols-2 gap-4">
           <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-5 border border-yellow-500/20 shadow-xl hover:border-yellow-500/40 transition-all duration-300">
             <div className="flex items-center gap-2 mb-2">
