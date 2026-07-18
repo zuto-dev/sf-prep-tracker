@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { WorkoutDay } from './components/WorkoutDay';
+import { SfreLifecycle } from './components/SfreLifecycle';
 import { Nav } from './components/Nav';
 import { FOUNDATION_WEEKS, FOUNDATION_WEEK_COUNT } from './data/workouts';
 import { resolveFoundationWeekIndex } from './lib/sfre-program';
@@ -130,6 +131,7 @@ export default function Home() {
       </div>
 
       <div className="max-w-7xl mx-auto p-4 -mt-6 relative z-10">
+        <SfreLifecycle />
         <ActiveAdjustments />
 
         {/* Week Selector */}
