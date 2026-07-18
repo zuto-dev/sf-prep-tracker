@@ -12,6 +12,8 @@ import { forecastTargetDate } from '../lib/progress-forecast';
 import { getPerformanceStats } from '../study/spaced-repetition';
 import { deriveFatigueAreas, buildTailoredMobilitySession } from '../lib/mobility-engine';
 import { MOVES } from '../mobility/page';
+import { FOUNDATION_TARGETS } from '../lib/nutrition-execution';
+import { resolveFoundationNutritionGuidance } from '../lib/sfre-program';
 import { CheckCircle2, AlertCircle, Timer, Dumbbell, Shield, BookOpen, Calendar, HelpCircle, Activity, Heart, ArrowUpRight, Flame, Target } from 'lucide-react';
 
 type NutritionStore = {
@@ -22,6 +24,7 @@ type NutritionStore = {
     snacks: Array<{ foodId: string; servings: number }>;
   }>;
   targets: { kcal: number; p: number; c: number; f: number };
+  preset?: 'foundation' | 'peak' | 'custom';
 };
 
 type StudyStore = {
@@ -431,17 +434,31 @@ export default function CalendarPage() {
               </h4>
 
               <div className="space-y-3">
-                <div>
-                  <div className="flex justify-between text-xs mb-1.5">
-                    <span className="text-gray-400">Calorie Target</span>
-                    <span className="font-mono text-gray-200">{Math.round(selectedDayData.macros.kcal)} / 2800 kcal</span>
-                  </div>
-                  <div className="bg-gray-950/60 h-2.5 rounded-full overflow-hidden">
-                    <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-full transition-all duration-700"
-                      style={{ width: `${Math.min(100, (selectedDayData.macros.kcal / 2800) * 100)}%` }}
-                    />
-                  </div>
-                </div>
+                {(() => {
+                  const activeTargetKcal = nutrition?.targets?.kcal ?? FOUNDATION_TARGETS.kcal;
+                  const isFoundationPreset = (nutrition?.preset ?? 'foundation') === 'foundation';
+                  const guidance = isFoundationPreset
+                    ? resolveFoundationNutritionGuidance({ preset: 'foundation', isTrainingDay: selectedDayData.workoutLogged })
+                    : null;
+                  return (
+                    <div>
+                      <div className="flex justify-between text-xs mb-1.5">
+                        <span className="text-gray-400">Calorie Target</span>
+                        <span className="font-mono text-gray-200">{Math.round(selectedDayData.macros.kcal)} / {Math.round(activeTargetKcal)} kcal</span>
+                      </div>
+                      <div className="bg-gray-950/60 h-2.5 rounded-full overflow-hidden">
+                        <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-full transition-all duration-700"
+                          style={{ width: `${Math.min(100, (selectedDayData.macros.kcal / activeTargetKcal) * 100)}%` }}
+                        />
+                      </div>
+                      {guidance && (
+                        <div className="mt-1.5 text-[10px] text-gray-500">
+                          Foundation {selectedDayData.workoutLogged ? 'training-day' : 'rest-day'} range: {guidance.kcalRange[0]}–{guidance.kcalRange[1]} kcal · fat floor {guidance.fatFloorG}g+. Fixed target above is a midpoint, not this range.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div className="grid grid-cols-3 gap-2 text-center mt-4">
                   <div className="p-2 bg-gray-950/40 rounded-lg border border-gray-850">

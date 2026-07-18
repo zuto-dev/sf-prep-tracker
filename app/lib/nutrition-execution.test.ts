@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { FOUNDATION_TARGETS, normalizeNutritionStore } from './nutrition-execution.ts';
+import { FOUNDATION_TARGETS, LEGACY_FOUNDATION_TARGETS_2400, normalizeNutritionStore } from './nutrition-execution.ts';
 
 test('normalizeNutritionStore migrates the obsolete 2800-cal foundation preset without changing custom targets', () => {
   const migrated = normalizeNutritionStore({
@@ -16,6 +16,26 @@ test('normalizeNutritionStore migrates the obsolete 2800-cal foundation preset w
     targets: { kcal: 2650, p: 175, c: 290, f: 75 },
   });
   assert.deepEqual(custom.targets, { kcal: 2650, p: 175, c: 290, f: 75 });
+});
+
+test('normalizeNutritionStore migrates the older 2400/180/240/80 legacy foundation preset', () => {
+  const migrated = normalizeNutritionStore({
+    days: {},
+    preset: 'foundation',
+    targets: { ...LEGACY_FOUNDATION_TARGETS_2400 },
+  });
+  assert.deepEqual(migrated.targets, FOUNDATION_TARGETS);
+});
+
+test('normalizeNutritionStore leaves a custom store looking like the older legacy numbers fully untouched', () => {
+  const customLookingLikeOlderLegacy = {
+    days: {},
+    preset: 'custom' as const,
+    targets: { ...LEGACY_FOUNDATION_TARGETS_2400 },
+  };
+  const result = normalizeNutritionStore(customLookingLikeOlderLegacy);
+  assert.deepEqual(result.targets, customLookingLikeOlderLegacy.targets);
+  assert.equal(result.preset, 'custom');
 });
 
 test('normalizeNutritionStore never overwrites a malformed or non-legacy foundation store', () => {
@@ -43,4 +63,8 @@ test('normalizeNutritionStore leaves a custom store fully untouched even if targ
   const result = normalizeNutritionStore(customLookingLikeLegacy);
   assert.deepEqual(result.targets, customLookingLikeLegacy.targets);
   assert.equal(result.preset, 'custom');
+});
+
+test('FOUNDATION_TARGETS is the explicit evidence-range midpoint: 2450 kcal / 150g P / 325g C / 60g F', () => {
+  assert.deepEqual(FOUNDATION_TARGETS, { kcal: 2450, p: 150, c: 325, f: 60 });
 });
