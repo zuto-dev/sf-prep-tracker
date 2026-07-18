@@ -106,12 +106,13 @@ export function SfreLifecycle() {
           </div>
         )}
         <a
-          href="#"
-          onClick={e => e.preventDefault()}
-          className="ml-auto text-xs text-gray-500 hover:text-gray-300 underline decoration-dotted cursor-not-allowed"
-          title="Open your logged-in MTI platform account directly — no content is mirrored here."
+          href="https://fitness.mtntactical.com/"
+          target="_blank"
+          rel="noreferrer"
+          className="ml-auto text-xs text-gray-400 hover:text-gray-200 underline decoration-dotted"
+          title="Opens the MTI platform in a new tab — you sign in there separately; no content is mirrored here."
         >
-          MTI platform (external, sign in separately) →
+          Open MTI platform (external, sign in separately) →
         </a>
       </div>
     </div>
