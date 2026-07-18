@@ -18,6 +18,7 @@ export function Nav() {
       <Link className={cls('/standards')} href="/standards">Standards</Link>
       <Link className={cls('/intel')} href="/intel">Intel</Link>
       <Link className={cls('/pods')} href="/pods">SF Pod</Link>
+      <Link className={cls('/board-sim')} href="/board-sim">Board</Link>
     </nav>
   );
 }
