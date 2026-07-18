@@ -65,6 +65,8 @@ import {
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync.ts';
 import { resolveFoundationWeekIndex, FOUNDATION_WEEKS } from '../lib/sfre-program.ts';
 import { KnowledgeExplorerModal } from './KnowledgeExplorerModal.tsx';
+import { resolveSfPodNarration, type SfPodNarration } from '../lib/sf-pod-narrations.ts';
+import { ReadyToListen } from './ReadyToListen.tsx';
 
 // Read-only migration source. Never written/deleted by this page.
 const LEGACY_SKILLS_KEY = 'sfprep:pods:skills';
@@ -231,6 +233,22 @@ export default function PodsPage() {
     [pods, effectiveStore, libraryFilter],
   );
 
+  // --- Audio-first: resolve narration for the newest CURRENT pod only ----
+  // `resolveSfPodNarration` is an exact {date,title} match against the
+  // fixed known-current allowlist — unresolved/unknown pods return null
+  // and the ReadyToListen hero never renders for them. `pods` is already
+  // sorted newest-first at fetch time (see bootstrap above), so the first
+  // pod with a non-null resolution is the newest resolved audio pod.
+  const newestResolvedAudioPod = useMemo(() => {
+    if (!pods) return null;
+    for (const p of pods) {
+      const narration = resolveSfPodNarration(p);
+      if (narration) return { pod: p, narration };
+    }
+    return null;
+  }, [pods]);
+
+
   // --- Persistence: pure mutation -> save -> push, gated on !corrupt -----
   function persist(next: KnowledgeStore) {
     if (corrupt || typeof window === 'undefined') return;
@@ -321,6 +339,15 @@ export default function PodsPage() {
           <div className="backdrop-blur-md bg-red-950/20 border border-red-700/50 text-red-200 px-5 py-4 rounded-2xl text-sm">
             {podsError}. Your saved progress has been preserved.
           </div>
+        )}
+
+        {/* --- Ready to Listen: audio-first hero for the newest resolved narration --- */}
+        {newestResolvedAudioPod && (
+          <ReadyToListen
+            pod={newestResolvedAudioPod.pod}
+            narration={newestResolvedAudioPod.narration}
+            onOpenNotes={() => openEpisode(podContentId(newestResolvedAudioPod.pod))}
+          />
         )}
 
         {/* --- Briefing Center --- */}
@@ -440,6 +467,17 @@ export default function PodsPage() {
                     {row.ownerTitle ? `From: ${row.ownerTitle}` : row.source ?? 'No source listed'}
                   </div>
                 </div>
+
+                {row.contentType === 'episode' && (
+                  <button
+                    onClick={() => openEpisode(row.id)}
+                    className="text-xs font-bold px-2.5 py-1 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex-shrink-0"
+                  >
+                    {pods?.some(p => resolveSfPodNarration(p) !== null && podContentId(p) === row.id)
+                      ? 'Listen'
+                      : 'Read notes'}
+                  </button>
+                )}
 
                 {row.contentType === 'skill' && (
                   <div className="flex items-center gap-1.5 flex-shrink-0">
