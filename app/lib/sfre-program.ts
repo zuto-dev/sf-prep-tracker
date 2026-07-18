@@ -313,3 +313,16 @@ export function resolveRuckLockState(foundationWeek: number, twoMileSeconds: num
 export function canToggleCompletion(locked: boolean): boolean {
   return !locked;
 }
+
+/**
+ * Whether a given exercise, on a given day, is the actual Saturday ruck
+ * prescription that resolveRuckLockState may lock. The ruck-lock policy is
+ * specifically a Saturday-session decision — it must NOT match same-named
+ * substrings on other days (e.g. Friday's "Ruck Swings" work-capacity
+ * drill), which are unrelated exercises that merely share the word "ruck".
+ * Callers MUST gate any lock/substitute UI through this (or an equally
+ * day-scoped check) rather than matching on exercise name alone.
+ */
+export function isLockableRuckExercise(day: string, name: string): boolean {
+  return day.toLowerCase() === 'saturday' && name.toLowerCase().includes('ruck');
+}

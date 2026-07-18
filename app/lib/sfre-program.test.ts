@@ -7,6 +7,7 @@ import {
   FOUNDATION_WEEKS,
   canToggleCompletion,
   canonicalTwoMileSeconds,
+  isLockableRuckExercise,
   resolveBodyweightTrend,
   resolveFoundationNutritionGuidance,
   resolveFoundationSaturdaySession,
@@ -264,4 +265,21 @@ test('resolveRuckLockState locks a scheduled ruck with an unmet gate and names t
 test('canToggleCompletion is the smallest pure completion guard: false when locked, true when unlocked', () => {
   assert.equal(canToggleCompletion(true), false);
   assert.equal(canToggleCompletion(false), true);
+});
+
+// --- Cross-day false-positive ruck lock regression -------------------------
+
+test('isLockableRuckExercise identifies the Saturday ruck prescription', () => {
+  assert.equal(isLockableRuckExercise('saturday', 'Ruck March'), true);
+  assert.equal(isLockableRuckExercise('Saturday', '6-Mile Ruck'), true);
+});
+
+test('isLockableRuckExercise excludes Friday "Ruck Swings" even though the name contains "ruck"', () => {
+  assert.equal(isLockableRuckExercise('friday', 'Ruck Swings'), false);
+});
+
+test('isLockableRuckExercise excludes ruck-named exercises on any non-Saturday day', () => {
+  for (const day of ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday']) {
+    assert.equal(isLockableRuckExercise(day, 'Ruck March'), false, `expected ${day} not to lock a ruck-named exercise`);
+  }
 });

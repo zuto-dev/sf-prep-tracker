@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Exercise } from './Exercise';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 import { deriveWorkoutHistory, deriveDayVolume, calculateAdaptiveLoad, acwrZone, acwrZoneColor } from '../lib/adaptive-engine';
-import { canonicalTwoMileSeconds, resolveRuckLockState } from '../lib/sfre-program';
+import { canonicalTwoMileSeconds, isLockableRuckExercise, resolveRuckLockState } from '../lib/sfre-program';
 import type { DayWorkout } from '../data/workouts';
 
 interface WorkoutDayProps {
@@ -28,10 +28,6 @@ function loadCompleted(key: string) {
   } catch {
     return new Set<string>();
   }
-}
-
-function isRuckExercise(name: string): boolean {
-  return name.toLowerCase().includes('ruck');
 }
 
 export function WorkoutDay({ day, workout, logKeyPrefix, foundationWeek }: WorkoutDayProps) {
@@ -168,7 +164,7 @@ export function WorkoutDay({ day, workout, logKeyPrefix, foundationWeek }: Worko
             )}
             {workout.exercises.map((ex, idx) => {
               const id = ex.id ?? `${day}-${idx}`;
-              const isRuck = isRuckExercise(ex.name);
+              const isRuck = isLockableRuckExercise(day, ex.name);
               const locked = isRuck && ruckLock.locked;
               const substituteId = `${id}:substitute`;
 
