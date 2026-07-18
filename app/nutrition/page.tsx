@@ -723,7 +723,7 @@ export default function NutritionPage() {
           {(['foundation','peak','custom'] as const).map(k => (
             <button key={k} onClick={() => setPreset(k)}
               className={`px-3 py-1 rounded text-xs ${store.preset === k ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
-              {k === 'foundation' ? 'Foundation · 2400 kcal / 180P' : k === 'peak' ? 'Peak · 2200 kcal / 200P' : 'Custom'}
+              {k === 'foundation' ? `Foundation · ${FOUNDATION_TARGETS.kcal} kcal / ${FOUNDATION_TARGETS.p}P` : k === 'peak' ? `Peak · ${PEAK_TARGETS.kcal} kcal / ${PEAK_TARGETS.p}P` : 'Custom'}
             </button>
           ))}
         </div>
