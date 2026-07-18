@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Nav } from '../components/Nav';
 import { WeeklyPlanner } from '../components/WeeklyPlanner';
+import { KnowledgeFocusCard } from '../components/KnowledgeFocusCard';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 import { FOODS, type Food } from '../data/foods';
 import { type UserMeal } from '../data/meals';
@@ -14,6 +15,15 @@ import { deriveFatigueAreas, buildTailoredMobilitySession } from '../lib/mobilit
 import { MOVES } from '../mobility/page';
 import { FOUNDATION_TARGETS } from '../lib/nutrition-execution';
 import { resolveFoundationNutritionGuidance } from '../lib/sfre-program';
+// Architecture Amendment 3 (WS-7): Calendar reads the existing
+// `sfprep:knowledge` store read-only via `normalizeKnowledgeStore` and
+// resolves queued IDs to labels via `deriveKnowledgeFocusSnapshot` against a
+// read-only same-origin fetch of the existing `/pods.json`. This page MUST
+// NEVER import a KnowledgeStore mutation helper (addToQueue/completeItem/
+// deferItem/noteItem/reconcileQueue) and MUST NEVER call pushSfprepSync for
+// the knowledge store — see knowledge-source-contract.test.ts.
+import { normalizeKnowledgeStore, type KnowledgeStore } from '../lib/knowledge-store';
+import { deriveKnowledgeFocusSnapshot, type KnowledgeFocusSnapshot } from '../lib/knowledge-views';
 import { CheckCircle2, AlertCircle, Timer, Dumbbell, Shield, BookOpen, Calendar, HelpCircle, Activity, Heart, ArrowUpRight, Flame, Target } from 'lucide-react';
 
 type NutritionStore = {
@@ -85,6 +95,15 @@ function getWeekNumber(dayNumber: number): number {
   return Math.ceil(dayNumber / 7);
 }
 
+/** Read-only, throw-safe JSON.parse used only for the WS-7 knowledge read path. */
+function safeJsonParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 export default function CalendarPage() {
   const [today] = useState(() => new Date().toISOString().slice(0, 10));
   const [nutrition, setNutrition] = useState<NutritionStore | null>(null);
@@ -96,7 +115,17 @@ export default function CalendarPage() {
   const [userMeals, setUserMeals] = useState<UserMeal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastSync, setLastSync] = useState<number | null>(null);
-  
+
+  // WS-7 (Architecture Amendment 3): read-only Knowledge Focus card state.
+  // `knowledgeStore` is populated by normalizing (never mutating) whatever is
+  // already in `sfprep:knowledge` after the existing pullSfprepSync() below;
+  // `knowledgePods` is a read-only same-origin fetch of the existing
+  // `/pods.json`, mirroring the Pods page's own fetch. Neither write to
+  // storage, call a KnowledgeStore mutation helper, nor call
+  // pushSfprepSync.
+  const [knowledgeStore, setKnowledgeStore] = useState<KnowledgeStore | null>(null);
+  const [knowledgePods, setKnowledgePods] = useState<unknown>(null);
+
   // HUD Selected Day Detail View
   const [selectedDayOffset, setSelectedDayOffset] = useState<number>(0);
 
@@ -147,6 +176,12 @@ export default function CalendarPage() {
             setStandardsAssessment(evaluateSOFMetrics('sfas', 'twoMileRun', twoMileSecs));
           }
         }
+
+        // WS-7: read-only knowledge store read, post-pullSfprepSync. This
+        // reads and normalizes the existing `sfprep:knowledge` key — it
+        // never writes back to storage and never touches a mutation helper.
+        const rawKnowledge = localStorage.getItem('sfprep:knowledge');
+        setKnowledgeStore(normalizeKnowledgeStore(rawKnowledge ? safeJsonParse(rawKnowledge) : null));
         
         setLastSync(Date.now());
         setIsLoading(false);
@@ -156,6 +191,19 @@ export default function CalendarPage() {
       }
     }
     load();
+  }, []);
+
+  // WS-7: read-only same-origin fetch of the existing /pods.json, solely to
+  // resolve queued knowledge IDs into human-readable labels. Mirrors the
+  // Pods page's own fetch call; never writes, never mutates the knowledge
+  // store, never posts anything back.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/pods.json', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => { if (!cancelled) setKnowledgePods(data); })
+      .catch(() => { if (!cancelled) setKnowledgePods(null); });
+    return () => { cancelled = true; };
   }, []);
 
   // Initialize food map with user meals
@@ -249,6 +297,17 @@ export default function CalendarPage() {
     const target2MileTime = 13.5; // sub 13:30 min target (average select tier)
     return forecastTargetDate(metrics.runPace, PLAN_D_START, target2MileTime, false);
   }, [metrics]);
+
+  // WS-7: pure read-only derivation of the Knowledge Focus snapshot from the
+  // already-normalized store + the read-only pods.json fetch. Never
+  // mutates knowledgeStore; falls back to a safe "unavailable" snapshot
+  // (counts only, no raw IDs) until both pieces have loaded.
+  const knowledgeFocusSnapshot: KnowledgeFocusSnapshot = useMemo(() => {
+    if (!knowledgeStore) {
+      return { available: false, activeCount: 0, reviewCount: 0 };
+    }
+    return deriveKnowledgeFocusSnapshot(knowledgeStore, knowledgePods);
+  }, [knowledgeStore, knowledgePods]);
 
   if (isLoading) {
     return (
@@ -390,6 +449,9 @@ export default function CalendarPage() {
             if (index >= 0) setSelectedDayOffset(index);
           }}
         />
+
+        {/* WS-7: read-only Knowledge Focus card (Architecture Amendment 3) */}
+        <KnowledgeFocusCard snapshot={knowledgeFocusSnapshot} />
 
         {/* Selected Day compliance HUD */}
         {selectedDayData && (
