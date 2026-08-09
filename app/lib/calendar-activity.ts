@@ -1,5 +1,5 @@
 const FOUNDATION_START_UTC = Date.parse('2026-07-06T00:00:00.000Z');
-const FOUNDATION_DAYS = 91;
+const FOUNDATION_DAYS = 161;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAY_KEYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 

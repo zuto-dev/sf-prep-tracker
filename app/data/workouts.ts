@@ -351,7 +351,7 @@ function paramsForWeek(globalWeek: number): Params {
 // no Bridge or MTI Peak session content in this catalog — those lifecycle
 // states (see sfre-program.ts resolveSfreLifecycle) intentionally emit no
 // UI content here; a later, separate workstream owns any such catalog.
-export const FOUNDATION_WEEK_COUNT = 13;
+export const FOUNDATION_WEEK_COUNT = 23;
 
 export const FOUNDATION_WEEKS: WeekWorkout[] = [];
 for (let w = 1; w <= FOUNDATION_WEEK_COUNT; w++) {

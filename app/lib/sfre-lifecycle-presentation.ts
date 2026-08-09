@@ -91,9 +91,9 @@ export function resolveSfreLifecyclePresentation(
     daysUntilEvent,
     daysUntilPeakWindow,
     stages: {
-      foundation: { label: 'Plan D Foundation (13 weeks)', status: foundationStatus },
-      bridge: { label: 'Controlled Bridge', status: bridgeStatus },
-      mtiPeak: { label: 'MTI SFRE Peak (7 weeks pre-event)', status: mtiPeakStatus },
+      foundation: { label: 'The Pipeline — Foundation (Wk 1-6)', status: foundationStatus },
+      bridge: { label: 'The Pipeline — Build (Wk 7-13)', status: bridgeStatus },
+      mtiPeak: { label: 'SFRE Prep + Taper (Wk 14-23)', status: mtiPeakStatus },
     },
   };
 }

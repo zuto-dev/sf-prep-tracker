@@ -2,8 +2,8 @@
 // Serializable types + pure resolvers only.
 
 export const FOUNDATION_START = new Date('2026-07-06T00:00:00Z');
-export const FOUNDATION_WEEKS = 13;
-export const FOUNDATION_DAYS = 91;
+export const FOUNDATION_WEEKS = 23;
+export const FOUNDATION_DAYS = 161;
 export const MTI_PEAK_WINDOW_DAYS = 49;
 export const STRICT_RUCK_GATE_SECONDS = 960;
 

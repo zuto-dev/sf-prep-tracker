@@ -102,7 +102,7 @@ export default function Home() {
   const selectedWorkouts = FOUNDATION_WEEKS[selectedWeek - 1];
   const todayWorkout = currentWorkouts[todayKey];
   const mission = describeMission(todayWorkout);
-  const phase = currentWeek <= 6 ? 'Base' : currentWeek <= 9 ? 'Build' : 'Peak';
+  const phase = currentWeek <= 6 ? 'Foundation' : currentWeek <= 13 ? 'Build' : currentWeek <= 22 ? 'SFRE Prep' : 'Taper';
   const dayOfProgram = Math.min(
     FOUNDATION_DAYS,
     Math.max(1, Math.floor((today.getTime() - FOUNDATION_START.getTime()) / (24 * 60 * 60 * 1000)) + 1),
@@ -184,7 +184,7 @@ export default function Home() {
         <TopBar onBack={goHome} label="Program" />
         <section className="mb-5 flex items-end justify-between border-b border-gray-900 pb-5">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-gray-600">SFRE Foundation</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-gray-600">The Pipeline</p>
             <h1 className="mt-2 text-2xl font-light text-white">Week {selectedWeek} of {FOUNDATION_WEEK_COUNT}</h1>
           </div>
           <select
