@@ -14,7 +14,13 @@ import { getPerformanceStats } from '../study/spaced-repetition';
 import { deriveFatigueAreas, buildTailoredMobilitySession } from '../lib/mobility-engine';
 import { MOVES } from '../mobility/page';
 import { FOUNDATION_TARGETS } from '../lib/nutrition-execution';
-import { resolveFoundationNutritionGuidance } from '../lib/sfre-program';
+import { canonicalTwoMileSeconds, resolveFoundationNutritionGuidance } from '../lib/sfre-program';
+import {
+  countCanonicalMobilityCompletions,
+  hasFoundationWorkoutActivity,
+  type CanonicalMobilityStore,
+  type FoundationCompletionSnapshot,
+} from '../lib/calendar-activity';
 // Architecture Amendment 3 (WS-7): Calendar reads the existing
 // `sfprep:knowledge` store read-only via `normalizeKnowledgeStore` and
 // resolves queued IDs to labels via `deriveKnowledgeFocusSnapshot` against a
@@ -46,14 +52,6 @@ type StudyStore = {
   pcDiag?: number;
   lastUpdate?: string;
   spacedRepetition?: any;
-};
-
-type WorkoutStore = {
-  logs: Record<string, { completed: Array<{ exercise: string }> }>;
-};
-
-type MobilityStore = {
-  days: Record<string, { stretches: string[] }>;
 };
 
 type SupplementStore = {
@@ -108,8 +106,8 @@ export default function CalendarPage() {
   const [today] = useState(() => new Date().toISOString().slice(0, 10));
   const [nutrition, setNutrition] = useState<NutritionStore | null>(null);
   const [study, setStudy] = useState<StudyStore | null>(null);
-  const [workouts, setWorkouts] = useState<WorkoutStore | null>(null);
-  const [mobility, setMobility] = useState<MobilityStore | null>(null);
+  const [workoutCompletions, setWorkoutCompletions] = useState<FoundationCompletionSnapshot>({});
+  const [mobility, setMobility] = useState<CanonicalMobilityStore>({});
   const [sups, setSups] = useState<SupplementStore | null>(null);
   const [metrics, setMetrics] = useState<MetricsStore | null>(null);
   const [userMeals, setUserMeals] = useState<UserMeal[]>([]);
@@ -143,13 +141,28 @@ export default function CalendarPage() {
         const rawStudy = localStorage.getItem('sfprep:study');
         if (rawStudy) setStudy(JSON.parse(rawStudy));
         
-        const rawWorkouts = localStorage.getItem('sfprep:workouts');
-        if (rawWorkouts) setWorkouts(JSON.parse(rawWorkouts));
+        const canonicalCompletions: FoundationCompletionSnapshot = {};
+        for (let index = 0; index < localStorage.length; index++) {
+          const key = localStorage.key(index);
+          if (!key || !key.startsWith('sfprep:log:foundation:') || !key.endsWith(':completed')) continue;
+          try {
+            const parsed = JSON.parse(localStorage.getItem(key) ?? '[]');
+            canonicalCompletions[key] = Array.isArray(parsed)
+              ? parsed.filter(value => typeof value === 'string')
+              : [];
+          } catch {
+            canonicalCompletions[key] = [];
+          }
+        }
+        setWorkoutCompletions(canonicalCompletions);
         
         const rawMobility = localStorage.getItem('sfprep:mobility');
-        if (rawMobility) setMobility(JSON.parse(rawMobility));
+        if (rawMobility) {
+          const parsed = JSON.parse(rawMobility);
+          setMobility(parsed && typeof parsed === 'object' ? parsed : {});
+        }
         
-        const rawSupps = localStorage.getItem('sfprep:supps');
+        const rawSupps = localStorage.getItem('sfprep:sups') ?? localStorage.getItem('sfprep:supps');
         if (rawSupps) setSups(JSON.parse(rawSupps));
 
         const rawMetrics = localStorage.getItem('sfprep:metrics');
@@ -171,8 +184,8 @@ export default function CalendarPage() {
         const rawRun = localStorage.getItem('sfprep:standards');
         if (rawRun) {
           const parsed = JSON.parse(rawRun);
-          const twoMileSecs = parsed.two_mile_pr_sec;
-          if (twoMileSecs) {
+          const twoMileSecs = canonicalTwoMileSeconds(parsed);
+          if (twoMileSecs !== null) {
             setStandardsAssessment(evaluateSOFMetrics('sfas', 'twoMileRun', twoMileSecs));
           }
         }
@@ -237,8 +250,8 @@ export default function CalendarPage() {
       const allEntries = [...dayNutrition.breakfast, ...dayNutrition.lunch, ...dayNutrition.dinner, ...dayNutrition.snacks];
       const macros = computeMacros(allEntries);
 
-      const isWorkoutLogged = workouts?.logs?.[isoDateString] || false;
-      const stretchesCount = mobility?.days?.[isoDateString]?.stretches?.length || 0;
+      const isWorkoutLogged = hasFoundationWorkoutActivity(workoutCompletions, isoDateString);
+      const stretchesCount = countCanonicalMobilityCompletions(mobility, isoDateString);
       
       const dayIndex = getDaysSince(PLAN_D_START, targetDate);
       const weekIndex = getWeekNumber(dayIndex);
@@ -247,7 +260,7 @@ export default function CalendarPage() {
         dayName: weekdays[i],
         isoDate: isoDateString,
         macros,
-        workoutLogged: !!isWorkoutLogged,
+        workoutLogged: isWorkoutLogged,
         mobilityCount: stretchesCount,
         programDay: dayIndex,
         programWeek: weekIndex,
@@ -255,7 +268,7 @@ export default function CalendarPage() {
       });
     }
     return timeline;
-  }, [nutrition, workouts, mobility, today]);
+  }, [nutrition, workoutCompletions, mobility, today]);
 
   // Selected Day detailed compliance analytics
   const selectedDayData = useMemo(() => {
