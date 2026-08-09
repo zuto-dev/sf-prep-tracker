@@ -5,30 +5,26 @@ import { Nav } from '../components/Nav';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 import {
   SOF_PROFILES,
-  evaluateSOFMetrics,
-  TIER_META,
   type EventHistory,
   type HistoryPoint,
   latestPoint,
 } from '../lib/sof-standards';
+import {
+  buildBenchmarkRows,
+  selectPrimaryWeakness,
+  type BenchmarkPresentationRow,
+  type BenchmarkStatus,
+} from '../lib/standards-presentation';
 import { hydrateLifecycleStore, type LifecycleStore } from '../lib/sfre-store';
 import { resolveSfreLifecyclePresentation } from '../lib/sfre-lifecycle-presentation';
 import { canonicalTwoMileSeconds, resolveStrictRuckGate } from '../lib/sfre-program';
-
-// SFAS standards pulled from official USAJFKSWCS docs:
-//  - SFAS Preparation Handbook (25 June 2025), 120 pg
-//  - 14-Week THOR3 SFAS Training Plan, 25 pg
-// Full markdown reference: ~/Gbrain-personal/personal/sf-prep/sfas-standards.md
-// PDFs: ~/Gbrain-personal/personal/sf-prep/official-docs/
-// Other branch profiles (SEAL PST, RASP, AFSOC) sourced from public-domain
-// published minimums — see app/lib/sof-standards.ts SOF_PROFILES.source.
 
 const STORAGE_KEY = 'sfprep:standards';
 
 type Store = {
   bodyweight_lbs: number;
   activeProfile: keyof typeof SOF_PROFILES;
-  history: EventHistory; // eventKey -> bi-temporal points
+  history: EventHistory;
 };
 
 const empty: Store = { bodyweight_lbs: 170, activeProfile: 'sfas', history: {} };
@@ -40,29 +36,44 @@ function load(): Store {
     if (!raw) return empty;
     const parsed = JSON.parse(raw);
     return { ...empty, ...parsed, history: parsed.history ?? {} };
-  } catch { return empty; }
+  } catch {
+    return empty;
+  }
 }
 
-function save(s: Store) {
+function save(store: Store) {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
   void pushSfprepSync();
 }
 
-function fmtTime(sec?: number): string {
-  if (sec == null) return '—';
-  const m = Math.floor(sec / 60);
-  const s = Math.round(sec % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
+function fmtTime(seconds?: number | null): string {
+  if (seconds == null) return '—';
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.round(seconds % 60);
+  return `${minutes}:${String(remainder).padStart(2, '0')}`;
 }
 
-function isTimeEvent(unit: string) {
+function isTimeEvent(unit: string): boolean {
   return unit === 'sec';
+}
+
+function statusClass(status: BenchmarkStatus): string {
+  if (status === 'elite' || status === 'average-select') return 'text-emerald-400 border-emerald-900/50 bg-emerald-950/20';
+  if (status === 'minimum') return 'text-amber-400 border-amber-900/50 bg-amber-950/20';
+  if (status === 'below-minimum') return 'text-red-400 border-red-900/50 bg-red-950/20';
+  return 'text-gray-600 border-gray-900 bg-black/20';
+}
+
+function lifecycleLabel(value: string | undefined): string {
+  if (!value) return 'Loading';
+  return value.replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
 }
 
 export default function StandardsPage() {
   const [store, setStore] = useState<Store>(empty);
   const [lifecycle, setLifecycle] = useState<LifecycleStore | null>(null);
+
   useEffect(() => {
     void pullSfprepSync().finally(() => {
       setStore(load());
@@ -70,45 +81,23 @@ export default function StandardsPage() {
       setLifecycle(hydrateLifecycleStore(storage));
     });
   }, []);
-  const set = (patch: Partial<Store>) => { const s = { ...store, ...patch }; setStore(s); save(s); };
 
-  const profile = SOF_PROFILES[store.activeProfile] ?? SOF_PROFILES.sfas;
-
-  const logValue = (eventKey: string, raw: string, unit: string) => {
-    let value: number | null = null;
-    if (isTimeEvent(unit)) {
-      const [m, s] = raw.split(':').map(n => parseInt(n, 10));
-      if (Number.isFinite(m) && Number.isFinite(s)) value = m * 60 + s;
-    } else {
-      const v = parseFloat(raw);
-      if (Number.isFinite(v)) value = v;
-    }
-    if (value == null) return;
-    const now = new Date();
-    const point: HistoryPoint = {
-      date: now.toISOString().slice(0, 10),
-      recordedAt: now.toISOString(),
-      value,
-    };
-    const existing = store.history[eventKey] ?? [];
-    set({ history: { ...store.history, [eventKey]: [...existing, point] } });
+  const set = (patch: Partial<Store>) => {
+    const next = { ...store, ...patch };
+    setStore(next);
+    save(next);
   };
 
-  const bw = store.bodyweight_lbs;
-  const ruckTiers = [
-    { label: 'THOR3 Wk 5-6 (20% BW)', weight: bw * 0.20, distance: '3-5 mi', pace: 'moderate' },
-    { label: 'THOR3 Wk 7-8 (25% BW)', weight: bw * 0.25, distance: '5-7 mi', pace: 'moderate' },
-    { label: 'THOR3 Wk 9-14 (30% BW)', weight: bw * 0.30, distance: '3.5-12 mi', pace: 'moderate + fast' },
-  ];
-  const officialTiers = [35, 40, 45, 50, 55];
-
-  const eventRows = useMemo(() => {
-    return Object.entries(profile.events).map(([key, ev]) => {
-      const point = latestPoint(store.history, key);
-      const evalResult = point ? evaluateSOFMetrics(store.activeProfile, key, point.value) : null;
-      return { key, ev, point, evalResult };
-    });
-  }, [profile, store.history, store.activeProfile]);
+  const profile = SOF_PROFILES[store.activeProfile] ?? SOF_PROFILES.sfas;
+  const benchmarkRows = useMemo(
+    () => buildBenchmarkRows(store.activeProfile, store.history),
+    [store.activeProfile, store.history],
+  );
+  const primaryWeakness = useMemo(
+    () => selectPrimaryWeakness(benchmarkRows),
+    [benchmarkRows],
+  );
+  const loggedCount = benchmarkRows.filter(row => row.currentValue !== null).length;
 
   const twoMileSeconds = useMemo(() => canonicalTwoMileSeconds(store), [store]);
   const ruckGate = useMemo(() => resolveStrictRuckGate(twoMileSeconds), [twoMileSeconds]);
@@ -120,278 +109,300 @@ export default function StandardsPage() {
       confirmedSfreDate: lifecycle.confirmedSfreDate,
     });
   }, [lifecycle]);
+
   const pullUpPoint = latestPoint(store.history, 'pullUps');
   const hrpuPoint = latestPoint(store.history, 'hrPushups');
 
+  const logValue = (eventKey: string, raw: string, unit: string) => {
+    let value: number | null = null;
+    if (isTimeEvent(unit)) {
+      const parts = raw.split(':');
+      if (parts.length === 2) {
+        const minutes = Number(parts[0]);
+        const seconds = Number(parts[1]);
+        if (Number.isFinite(minutes) && Number.isFinite(seconds) && seconds >= 0 && seconds < 60) {
+          value = minutes * 60 + seconds;
+        }
+      }
+    } else {
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed)) value = parsed;
+    }
+    if (value == null) return;
+
+    const now = new Date();
+    const point: HistoryPoint = {
+      date: now.toISOString().slice(0, 10),
+      recordedAt: now.toISOString(),
+      value,
+    };
+    const existing = store.history[eventKey] ?? [];
+    set({ history: { ...store.history, [eventKey]: [...existing, point] } });
+  };
+
+  const bodyweight = store.bodyweight_lbs;
+  const ruckTiers = [
+    { label: 'Foundation 20%', weight: bodyweight * 0.20, distance: '3–5 mi' },
+    { label: 'Build 25%', weight: bodyweight * 0.25, distance: '5–7 mi' },
+    { label: 'Late build 30%', weight: bodyweight * 0.30, distance: '3.5–12 mi' },
+  ];
+
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Animated background gradient */}
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/20 via-gray-950 to-purple-950/20 pointer-events-none" />
+    <main className="min-h-screen bg-[#0a0a0b] text-gray-200">
+      <div className="fixed inset-0 pointer-events-none" style={{
+        background: 'linear-gradient(180deg, rgba(20,20,25,0.55) 0%, transparent 32vh)',
+      }} />
 
-      {/* Hero Section */}
-      <div className="relative bg-gradient-to-b from-blue-950/40 to-transparent backdrop-blur-sm pb-8">
-        <div className="max-w-5xl mx-auto p-4">
-          <div className="mb-6 animate-fade-in">
-            <h1 className="text-5xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-400 bg-clip-text text-transparent">
-              Military Standards
-            </h1>
-            <p className="text-gray-400 mt-2 text-base">
-              Multi-branch SOF threshold engine. Switch profiles, log a value, and every gauge redraws.
-            </p>
-          </div>
-          <Nav />
-        </div>
-      </div>
-
-      <div className="max-w-5xl mx-auto p-4 -mt-6 relative z-10 space-y-8">
-        {/* Dynamic SOF Profile Switcher */}
-        <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-4 border border-gray-800/50 shadow-xl">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-400">Active Profile</h2>
-            <span className="text-[11px] text-gray-500 italic">{profile.source}</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(SOF_PROFILES).map(([key, p]) => (
-              <button
-                key={key}
-                onClick={() => set({ activeProfile: key as keyof typeof SOF_PROFILES })}
-                className={`px-4 py-2 rounded-xl text-sm font-bold border transition-all duration-300 ${
-                  store.activeProfile === key
-                    ? 'bg-blue-600/80 border-blue-400/50 text-white shadow-lg shadow-blue-500/20 scale-105'
-                    : 'bg-gray-800/40 border-gray-700/50 text-gray-300 hover:border-blue-500/40 hover:bg-gray-800/70'
-                }`}
-              >
-                {p.shortLabel}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* SFRE Readiness — Plan D + MTI coaching targets, not official cutoffs */}
-        <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-5 border border-purple-500/20 shadow-xl">
-          <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
-            <h2 className="text-lg font-bold text-white">SFRE Readiness</h2>
-            <span className="text-[11px] text-purple-300 italic">
-              Plan D + MTI coaching targets — not official SFRE cutoffs.
-            </span>
-          </div>
-          <div className="grid sm:grid-cols-3 gap-3 mt-4">
-            <div className="bg-gray-950/40 border border-gray-800/60 rounded-xl p-3.5">
-              <div className="text-[10px] uppercase font-bold tracking-wider text-gray-500 mb-1">2-Mile (canonical)</div>
-              <div className="text-lg font-black text-white font-mono">{twoMileSeconds != null ? fmtTime(twoMileSeconds) : '—'}</div>
-              <div className="text-xs text-gray-400 mt-1">HRPU: {hrpuPoint ? hrpuPoint.value : '—'} · Pull-ups: {pullUpPoint ? pullUpPoint.value : '—'}</div>
+      <div className="relative z-10 max-w-3xl mx-auto px-5 pt-8 pb-16">
+        <header className="mb-8">
+          <div className="flex items-center justify-between mb-7">
+            <div className="flex items-baseline gap-3">
+              <span className="text-sm font-bold tracking-[0.3em] text-gray-400">SF</span>
+              <span className="text-sm font-bold tracking-[0.3em] text-white">PREP</span>
             </div>
-            <div className="bg-gray-950/40 border border-gray-800/60 rounded-xl p-3.5">
-              <div className="text-[10px] uppercase font-bold tracking-wider text-gray-500 mb-1">Ruck Gate</div>
-              <div className={`text-sm font-bold ${ruckGate.cleared ? 'text-emerald-400' : 'text-amber-400'}`}>
-                {ruckGate.cleared ? 'Cleared' : 'Locked'}
-              </div>
-              <div className="text-xs text-gray-400 mt-1">
-                {ruckGate.cleared
-                  ? `2-mile at or under ${fmtTime(ruckGate.gateSeconds)}`
-                  : `Next action: log a 2-mile at or under ${fmtTime(ruckGate.gateSeconds)}`}
-              </div>
-            </div>
-            <div className="bg-gray-950/40 border border-gray-800/60 rounded-xl p-3.5">
-              <div className="text-[10px] uppercase font-bold tracking-wider text-gray-500 mb-1">Lifecycle / Peak Date</div>
-              {readinessLifecycle ? (
-                <>
-                  <div className="text-sm font-bold text-blue-300 capitalize">{readinessLifecycle.state.replace('_', ' ')}</div>
-                  <div className="text-xs text-gray-400 mt-1">
-                    {readinessLifecycle.dateState === 'date_required'
-                      ? 'Confirm your SFRE date on Home to unlock a countdown.'
-                      : readinessLifecycle.daysUntilEvent !== null
-                        ? `${readinessLifecycle.daysUntilEvent} days to event`
-                        : '—'}
-                  </div>
-                </>
-              ) : (
-                <div className="text-sm text-gray-500">Loading…</div>
-              )}
-            </div>
+            <span className="text-[10px] uppercase tracking-[0.18em] text-gray-700">Operational Standards</span>
           </div>
-        </div>
+          <h1 className="text-2xl font-light tracking-tight text-white">Readiness Benchmarks</h1>
+          <p className="mt-2 max-w-xl text-xs leading-5 text-gray-600">
+            Your recorded performance against published selection thresholds. Coaching targets are separated from official minimums.
+          </p>
+        </header>
 
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-5 border border-yellow-500/20 shadow-xl hover:border-yellow-500/40 transition-all duration-300">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-xl">⚠️</span>
-              <h3 className="text-lg font-bold text-yellow-400">Minimum Standards</h3>
-            </div>
-            <p className="text-sm text-gray-300 leading-relaxed">
-              Price of entry. These are the absolute bare minimum to avoid being immediately dropped. Meet these or do not show up.
-            </p>
-          </div>
-          <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-5 border border-emerald-500/20 shadow-xl hover:border-emerald-500/40 transition-all duration-300">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-xl">🔥</span>
-              <h3 className="text-lg font-bold text-emerald-400">Average Select Candidate</h3>
-            </div>
-            <p className="text-sm text-gray-300 leading-relaxed">
-              What successful candidates actually perform. This is the tier that gets selected. Chase these numbers.
-            </p>
-          </div>
-        </div>
+        <Nav />
 
-        {/* Bodyweight input */}
-        <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-6 border border-gray-800/50 shadow-xl">
-          <h2 className="text-2xl font-bold mb-4 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-            Your Current Baseline
-          </h2>
-          <div className="bg-gray-800/40 rounded-xl p-3.5 border border-gray-800/60 max-w-xs">
-            <span className="text-gray-400 text-xs font-bold mb-2 uppercase tracking-wider block">Bodyweight (lbs)</span>
-            <input type="number" value={store.bodyweight_lbs}
-              onChange={e => set({ bodyweight_lbs: Number(e.target.value) })}
-              className="bg-gray-950 border border-gray-700/60 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full" />
-          </div>
-        </div>
+        <section className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-gray-900/60 rounded-lg overflow-hidden mb-6">
+          <Metric label="Readiness" value={lifecycleLabel(readinessLifecycle?.state)} detail={`${loggedCount}/${benchmarkRows.length} metrics logged`} />
+          <Metric label="Weakness" value={primaryWeakness?.label ?? 'Insufficient Data'} detail={primaryWeakness?.gapDisplay ?? 'Log benchmarks first'} />
+          <Metric label="2-Mile" value={fmtTime(twoMileSeconds)} detail={`Gate ${fmtTime(ruckGate.gateSeconds)}`} mono />
+          <Metric label="Ruck Gate" value={ruckGate.cleared ? 'Cleared' : 'Locked'} detail={ruckGate.cleared ? 'Run standard met' : 'Sub-16:00 required'} tone={ruckGate.cleared ? 'good' : 'warn'} />
+        </section>
 
-        {/* Bi-Temporal Threshold Matrix */}
-        <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl border border-gray-800/50 shadow-xl overflow-hidden">
-          <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 px-6 py-4 border-b border-gray-800/50">
-            <h2 className="text-xl font-bold">{profile.branchName}</h2>
+        <section className="rounded-lg border border-gray-900/80 bg-[#0d0d0f] p-4 mb-6">
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-gray-600">Active Standard</p>
+              <h2 className="mt-1 text-sm font-medium text-white">{profile.branchName}</h2>
+            </div>
+            <p className="hidden sm:block max-w-xs text-right text-[10px] leading-4 text-gray-700">{profile.source}</p>
           </div>
-          <div className="divide-y divide-gray-800/50">
-            {eventRows.map(({ key, ev, point, evalResult }) => {
-              const tierMeta = evalResult ? TIER_META[evalResult.tier] : null;
-              const displayValue = point == null
-                ? '—'
-                : isTimeEvent(ev.unit) ? fmtTime(point.value) : `${point.value}`;
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
+            {Object.entries(SOF_PROFILES).map(([key, option]) => {
+              const active = store.activeProfile === key;
               return (
-                <div key={key} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-gray-800/20 transition-colors">
-                  <div>
-                    <h4 className="font-bold text-white text-base">{ev.label}</h4>
-                    <div className="text-xs text-gray-500 mt-1">
-                      Min <span className="text-gray-300 font-semibold">{isTimeEvent(ev.unit) ? fmtTime(ev.thresholds.minimum) : ev.thresholds.minimum}</span>
-                      {' · '}Avg-Select <span className="text-gray-300 font-semibold">{isTimeEvent(ev.unit) ? fmtTime(ev.thresholds.averageSelect) : ev.thresholds.averageSelect}</span>
-                      {' · '}Elite <span className="text-gray-300 font-semibold">{isTimeEvent(ev.unit) ? fmtTime(ev.thresholds.elite) : ev.thresholds.elite}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <div className="text-xs text-gray-400 uppercase tracking-wider">Latest</div>
-                      <div className="text-lg font-black text-white font-mono">{displayValue}</div>
-                    </div>
-                    <div className="bg-gray-950/60 border border-gray-800 rounded-xl px-4 py-2.5 min-w-[150px] text-center text-sm">
-                      {tierMeta ? (
-                        <div>
-                          <span className={`font-semibold ${tierMeta.color}`}>{tierMeta.label}</span>
-                          {evalResult && evalResult.tier !== 'elite' && (
-                            <div className="text-[10px] text-gray-500 mt-0.5">
-                              gap: {isTimeEvent(ev.unit) ? fmtTime(evalResult.nextTargetGap) : Math.round(evalResult.nextTargetGap)} {isTimeEvent(ev.unit) ? '' : ev.unit}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-gray-500">not entered</span>
-                      )}
-                    </div>
-                    <LogInput unit={ev.unit} onSubmit={v => logValue(key, v, ev.unit)} />
-                  </div>
-                </div>
+                <button
+                  key={key}
+                  onClick={() => set({ activeProfile: key as keyof typeof SOF_PROFILES })}
+                  className={`px-3 py-2 text-[10px] font-bold tracking-[0.12em] uppercase border transition-colors ${
+                    active
+                      ? 'border-blue-800/70 bg-blue-950/30 text-blue-400'
+                      : 'border-gray-900 bg-black/20 text-gray-600 hover:text-gray-400 hover:border-gray-800'
+                  }`}
+                >
+                  {option.shortLabel}
+                </button>
               );
             })}
           </div>
-        </div>
+        </section>
 
-        {/* Ruck Progression */}
-        <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl border border-gray-800/50 shadow-xl overflow-hidden">
-          <div className="bg-gradient-to-r from-amber-900/40 to-orange-900/40 px-6 py-4 border-b border-gray-800/50">
-            <h2 className="text-xl font-bold">Ruck Load Progression</h2>
-          </div>
-          <div className="p-6 space-y-6">
+        <section className="mb-7">
+          <div className="flex items-end justify-between mb-3">
             <div>
-              <h3 className="text-lg font-semibold mb-3">THOR3 (from your bodyweight)</h3>
-              <div className="grid md:grid-cols-3 gap-4">
-                {ruckTiers.map((tier, i) => (
-                  <div key={i} className="bg-gray-850/40 border border-gray-800/60 rounded-xl p-4 hover:border-amber-500/30 transition-all duration-300">
-                    <h4 className="font-bold text-gray-200 text-sm mb-2">{tier.label}</h4>
-                    <div className="text-3xl font-black text-amber-400 font-mono mb-1">{Math.round(tier.weight)} lbs</div>
-                    <div className="text-xs text-gray-400">Distance: {tier.distance} · Pace: {tier.pace}</div>
-                  </div>
-                ))}
-              </div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-gray-600">Operational Benchmarks</p>
+              <h2 className="mt-1 text-base font-medium text-white">Your values vs. selection standards</h2>
             </div>
+            <span className="text-[10px] text-gray-700">CURRENT · MIN · AVG · ELITE</span>
+          </div>
 
-            <div className="pt-4 border-t border-gray-800/50">
-              <h3 className="text-lg font-semibold mb-3">Handbook Absolute Tiers</h3>
-              <div className="flex flex-wrap gap-3">
-                {officialTiers.map((w, i) => (
-                  <div key={i} className="bg-gray-950/40 border border-gray-850 rounded-xl px-4 py-3 flex-1 min-w-[100px] text-center">
-                    <div className="text-xs text-gray-500">Tier {i + 1}</div>
-                    <div className="text-2xl font-black text-white font-mono">{w} lbs</div>
-                  </div>
-                ))}
-              </div>
+          <div className="space-y-2">
+            {benchmarkRows.map(row => (
+              <BenchmarkRow
+                key={row.key}
+                row={row}
+                onLog={value => logValue(row.key, value, row.unit)}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section className="grid sm:grid-cols-3 gap-px bg-gray-900/60 rounded-lg overflow-hidden mb-7">
+          <div className="bg-[#0d0d0f] p-4 sm:col-span-1">
+            <label htmlFor="bodyweight" className="block text-[10px] uppercase tracking-[0.18em] text-gray-600">Bodyweight</label>
+            <div className="mt-2 flex items-baseline gap-2">
+              <input
+                id="bodyweight"
+                type="number"
+                value={store.bodyweight_lbs}
+                onChange={event => set({ bodyweight_lbs: Number(event.target.value) })}
+                className="w-20 bg-transparent border-b border-gray-800 pb-1 text-2xl font-light tabular-nums text-white focus:outline-none focus:border-blue-700"
+              />
+              <span className="text-xs text-gray-700">LB</span>
             </div>
           </div>
-        </div>
+          <div className="bg-[#0d0d0f] p-4 sm:col-span-2">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-gray-600">Current Baseline</p>
+            <div className="mt-3 grid grid-cols-3 gap-3">
+              <Baseline label="HRPU" value={hrpuPoint ? String(hrpuPoint.value) : '—'} />
+              <Baseline label="Pull-ups" value={pullUpPoint ? String(pullUpPoint.value) : '—'} />
+              <Baseline label="2-Mile" value={fmtTime(twoMileSeconds)} mono />
+            </div>
+          </div>
+        </section>
 
-        {/* History log per event */}
-        <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl border border-gray-800/50 shadow-xl overflow-hidden">
-          <div className="bg-gradient-to-r from-gray-800/60 to-gray-900/60 px-6 py-4 border-b border-gray-800/50">
-            <h2 className="text-xl font-bold">History (bi-temporal log)</h2>
-            <p className="text-xs text-gray-500 mt-1">Every entry keeps its recorded-at timestamp, so late-logged sessions never overwrite the true chronology.</p>
+        <section className="rounded-lg border border-gray-900/80 bg-[#0d0d0f] mb-7 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-900/80 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-gray-600">Ruck Reference</p>
+              <h2 className="mt-1 text-sm font-medium text-white">Bodyweight-derived load progression</h2>
+            </div>
+            <span className={`text-[10px] font-bold uppercase tracking-[0.12em] ${ruckGate.cleared ? 'text-emerald-500' : 'text-amber-600'}`}>
+              {ruckGate.cleared ? 'Unlocked' : 'Gate Locked'}
+            </span>
           </div>
-          <div className="p-4 space-y-3">
-            {eventRows.every(r => (store.history[r.key] ?? []).length === 0) ? (
-              <div className="text-sm text-gray-500 text-center py-4">No history yet — log a value above to start tracking trend.</div>
-            ) : (
-              eventRows.map(({ key, ev }) => {
-                const pts = [...(store.history[key] ?? [])].sort((a, b) => b.date.localeCompare(a.date));
-                if (pts.length === 0) return null;
-                return (
-                  <details key={key} className="group border border-gray-800/60 rounded-xl p-3">
-                    <summary className="text-sm font-semibold cursor-pointer flex items-center justify-between">
-                      <span>{ev.label} ({pts.length})</span>
-                      <span className="text-gray-500 group-open:rotate-180 transition-transform text-xs">▼</span>
-                    </summary>
-                    <ul className="mt-2 text-xs space-y-1">
-                      {pts.map((p, i) => (
-                        <li key={i} className="flex justify-between text-gray-400">
-                          <span>{p.date}</span>
-                          <span className="text-white font-mono">{isTimeEvent(ev.unit) ? fmtTime(p.value) : p.value}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                );
-              })
-            )}
+          <div className="grid sm:grid-cols-3 gap-px bg-gray-900/60">
+            {ruckTiers.map(tier => (
+              <div key={tier.label} className="bg-[#0d0d0f] p-4">
+                <p className="text-[10px] uppercase tracking-[0.12em] text-gray-600">{tier.label}</p>
+                <p className="mt-2 text-xl font-light tabular-nums text-white">{Math.round(tier.weight)} lb</p>
+                <p className="mt-1 text-[10px] text-gray-700">{tier.distance} · walking progression</p>
+              </div>
+            ))}
           </div>
+          <p className="px-4 py-3 text-[10px] leading-4 text-gray-700 border-t border-gray-900/80">
+            Reference only. The Foundation catalog and strict two-mile gate remain the sole prescription authority.
+          </p>
+        </section>
+
+        <section className="rounded-lg border border-gray-900/80 bg-[#0d0d0f] overflow-hidden">
+          <details>
+            <summary className="cursor-pointer list-none px-4 py-4 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-gray-600">History</p>
+                <p className="mt-1 text-sm font-medium text-white">Bi-temporal performance log</p>
+              </div>
+              <span className="text-[10px] text-gray-700 uppercase tracking-wider">Expand</span>
+            </summary>
+            <div className="border-t border-gray-900/80 p-4 space-y-2">
+              {benchmarkRows.every(row => (store.history[row.key] ?? []).length === 0) ? (
+                <p className="py-6 text-center text-xs text-gray-700">No performance history logged.</p>
+              ) : (
+                benchmarkRows.map(row => {
+                  const points = [...(store.history[row.key] ?? [])].sort((a, b) => b.date.localeCompare(a.date));
+                  if (points.length === 0) return null;
+                  return (
+                    <details key={row.key} className="border border-gray-900 p-3">
+                      <summary className="cursor-pointer text-xs text-gray-400 flex justify-between">
+                        <span>{row.label}</span>
+                        <span>{points.length} entries</span>
+                      </summary>
+                      <ul className="mt-3 space-y-1.5">
+                        {points.map((point, index) => (
+                          <li key={`${point.recordedAt}-${index}`} className="flex justify-between text-[11px] text-gray-600">
+                            <span>{point.date}</span>
+                            <span className="font-mono text-gray-300">{isTimeEvent(row.unit) ? fmtTime(point.value) : point.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  );
+                })
+              )}
+            </div>
+          </details>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  detail,
+  mono = false,
+  tone = 'default',
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  mono?: boolean;
+  tone?: 'default' | 'good' | 'warn';
+}) {
+  const valueColor = tone === 'good' ? 'text-emerald-400' : tone === 'warn' ? 'text-amber-500' : 'text-white';
+  return (
+    <div className="bg-[#0d0d0f] p-4 min-h-28">
+      <p className="text-[9px] uppercase tracking-[0.16em] text-gray-700">{label}</p>
+      <p className={`mt-3 text-sm font-medium leading-5 ${mono ? 'font-mono tabular-nums' : ''} ${valueColor}`}>{value}</p>
+      <p className="mt-1 text-[9px] leading-4 text-gray-700">{detail}</p>
+    </div>
+  );
+}
+
+function Baseline({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div>
+      <p className="text-[9px] uppercase tracking-[0.12em] text-gray-700">{label}</p>
+      <p className={`mt-1 text-base text-white ${mono ? 'font-mono tabular-nums' : 'font-light'}`}>{value}</p>
+    </div>
+  );
+}
+
+function BenchmarkRow({ row, onLog }: { row: BenchmarkPresentationRow; onLog: (value: string) => void }) {
+  return (
+    <div className="rounded-lg border border-gray-900/80 bg-[#0d0d0f] p-4">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <p className="text-sm font-medium text-white">{row.label}</p>
+          <p className="mt-1 text-[10px] text-gray-700">{row.gapDisplay}</p>
         </div>
+        <span className={`px-2 py-1 border text-[9px] font-bold uppercase tracking-[0.1em] ${statusClass(row.status)}`}>
+          {row.statusLabel}
+        </span>
       </div>
 
-      {/* Global styles */}
-      <style jsx global>{`
-        @keyframes fade-in {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        .animate-fade-in {
-          animation: fade-in 0.6s ease-out forwards;
-        }
-      `}</style>
+      <div className="grid grid-cols-4 gap-px bg-gray-900/60 mb-3">
+        <ValueCell label="Current" value={row.currentDisplay} emphasis />
+        <ValueCell label="Minimum" value={row.minimumDisplay} />
+        <ValueCell label="Avg Select" value={row.averageDisplay} />
+        <ValueCell label="Elite" value={row.eliteDisplay} />
+      </div>
+
+      <LogInput unit={row.unit} onSubmit={onLog} />
+    </div>
+  );
+}
+
+function ValueCell({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
+  return (
+    <div className="bg-black/20 px-2 py-2.5 min-w-0">
+      <p className="text-[8px] uppercase tracking-[0.08em] text-gray-700 truncate">{label}</p>
+      <p className={`mt-1 text-xs tabular-nums truncate ${emphasis ? 'text-white font-medium' : 'text-gray-500'}`}>{value}</p>
     </div>
   );
 }
 
 function LogInput({ unit, onSubmit }: { unit: string; onSubmit: (raw: string) => void }) {
-  const [v, setV] = useState('');
+  const [value, setValue] = useState('');
+  const submit = () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    onSubmit(trimmed);
+    setValue('');
+  };
+
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-2">
       <input
+        aria-label="Log benchmark value"
         placeholder={isTimeEvent(unit) ? 'mm:ss' : unit}
-        value={v}
-        onChange={e => setV(e.target.value)}
-        onKeyDown={e => {
-          if (e.key === 'Enter' && v.trim()) { onSubmit(v.trim()); setV(''); }
-        }}
-        className="w-20 bg-gray-950 border border-gray-700/60 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+        value={value}
+        onChange={event => setValue(event.target.value)}
+        onKeyDown={event => { if (event.key === 'Enter') submit(); }}
+        className="min-w-0 flex-1 bg-black/30 border border-gray-900 px-3 py-2 text-xs text-white placeholder:text-gray-800 focus:outline-none focus:border-blue-800"
       />
       <button
-        onClick={() => { if (v.trim()) { onSubmit(v.trim()); setV(''); } }}
-        className="text-xs px-2 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold"
+        onClick={submit}
+        className="border border-gray-800 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400 hover:text-white hover:border-gray-700 transition-colors"
       >
         Log
       </button>
