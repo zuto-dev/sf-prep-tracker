@@ -202,7 +202,7 @@ export function WeeklyPlanner({
       <aside className="self-start rounded-2xl border border-orange-500/20 bg-gray-900/60 p-5 backdrop-blur-md">
         <p className="text-xs font-bold uppercase tracking-wider text-orange-300">Sunday prep</p>
         <h2 className="text-xl font-bold text-white">Real grocery list</h2>
-        <p className="mt-1 text-sm text-gray-400">Plan D guide quantities only. No invented recipe math.</p>
+        <p className="mt-1 text-sm text-gray-400">Pipeline guide quantities only. No invented recipe math.</p>
         <div className="mt-4 space-y-2">
           {(['carnitas', 'korean-beef'] as const).map(id => {
             const recipe = buildGroceryList([id]).recipes[0];

@@ -1,12 +1,19 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Nav } from '../components/Nav';
+import { TacticalPageHeader } from '../components/TacticalPageHeader';
 import { FOODS, searchFoods, type Food } from '../data/foods';
 import { SupsLog } from '../components/SupsLog';
 import { useMeals, addMeal, removeMeal, searchMeals, type UserMeal } from '../data/meals';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 import { FOUNDATION_TARGETS, PEAK_TARGETS, normalizeNutritionStore } from '../lib/nutrition-execution';
+import { resolveFoundationNutritionGuidance, resolveBodyweightTrend, type BodyweightTrendAction } from '../lib/sfre-program';
+import {
+  hydrateBodyweightStore,
+  saveBodyweightStore,
+  upsertBodyweightPoint,
+  type BodyweightStore,
+} from '../lib/sfre-store';
 import {
   scoreMealRecommendation,
   classifyWindow,
@@ -177,8 +184,8 @@ function coachReply(
   }
   if (/(post|after).*(workout|training)|post-workout|after workout/.test(p)) {
     return [
-      'Post-workout: get protein in soon, then add carbs if you trained hard.',
-      'Target 30-40g protein + 30-60g carbs inside the next 1-2 hours. Keep fats lower if you want the meal to digest fast.',
+      'Post-workout: get protein in over the surrounding hours, then add carbs if you trained hard.',
+      'There is no strict cutoff — aim for roughly 30-40g protein + 30-60g carbs sometime in the hours around training. Keep fats lower if you want the meal to digest fast, but do not stress about hitting an exact minute count.',
       `Best move is the easiest meal you will actually eat. ${gapLine}`,
     ].join(' ');
   }
@@ -467,8 +474,13 @@ export default function NutritionPage() {
   const [view, setView] = useState<'today' | 'week' | 'meals' | 'tools'>('today');
   const [nextMealSlot, setNextMealSlot] = useState<Meal>('lunch');
   const [activeMealSlot, setActiveMealSlot] = useState<Meal>('lunch');
+  const [bodyweight, setBodyweight] = useState<BodyweightStore>({ version: 1, points: [] });
+  const [bwInput, setBwInput] = useState('');
   useEffect(() => {
-    void pullSfprepSync().finally(() => setStore(load()));
+    void pullSfprepSync().finally(() => {
+      setStore(load());
+      setBodyweight(hydrateBodyweightStore(typeof window === 'undefined' ? undefined : window.localStorage));
+    });
   }, []);
 
   const meals = useMeals();
@@ -502,10 +514,26 @@ export default function NutritionPage() {
     setStore(next); save(next);
   };
 
+  const logBodyweight = (bwDate: string, value: number) => {
+    if (!Number.isFinite(value) || value <= 0) return;
+    const next = upsertBodyweightPoint(bodyweight, { date: bwDate, value });
+    setBodyweight(next);
+    saveBodyweightStore(next, typeof window === 'undefined' ? undefined : window.localStorage);
+    void pushSfprepSync();
+  };
+  const bodyweightTrend: BodyweightTrendAction = useMemo(
+    () => resolveBodyweightTrend(bodyweight.points.map(p => ({ date: p.date, value: p.value }))),
+    [bodyweight.points],
+  );
+
   const t = dayTotals(day);
   const [refreshSeed, setRefreshSeed] = useState(0);
   const [trainingType, setTrainingType] = useState<TrainingType>('rest');
   const [trainingTimeStr, setTrainingTimeStr] = useState('16:00');
+  const nutritionGuidance = useMemo(
+    () => resolveFoundationNutritionGuidance({ preset: store.preset, isTrainingDay: trainingType !== 'rest' }),
+    [store.preset, trainingType],
+  );
   const nutrientContext: SuggestionContext = useMemo(() => {
     const now = new Date();
     let trainingTime: Date | null = null;
@@ -683,19 +711,24 @@ export default function NutritionPage() {
   }, [weekDays]);
 
   return (
-    <div className="min-h-screen p-4 max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold mb-1">Nutrition</h1>
-      <p className="text-gray-400 text-sm mb-6">Meal log · macro targets · weekly rollup</p>
-      <Nav />
+    <div className="min-h-screen p-4 max-w-7xl mx-auto bg-[#09090a]">
+      <TacticalPageHeader
+        eyebrow="Fuel"
+        title="What should you eat next?"
+        description="Log the next meal, close today's calorie and protein gaps, and keep the 3–4 week bodyweight trend honest."
+        status={`${fmt(Math.max(0, remaining.p))}g protein left`}
+      />
 
       {/* Presets + targets */}
-      <div className="bg-gray-800 rounded-lg p-4 mb-4">
+      <details className="bg-gray-800 rounded-lg p-4 mb-4">
+        <summary className="cursor-pointer text-xs font-bold uppercase tracking-wider text-gray-500">Targets & presets</summary>
+        <div className="mt-4">
         <div className="flex flex-wrap gap-2 items-center mb-3">
           <span className="text-xs text-gray-400">Preset:</span>
           {(['foundation','peak','custom'] as const).map(k => (
             <button key={k} onClick={() => setPreset(k)}
               className={`px-3 py-1 rounded text-xs ${store.preset === k ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
-              {k === 'foundation' ? 'Foundation · 2400 kcal / 180P' : k === 'peak' ? 'Peak · 2200 kcal / 200P' : 'Custom'}
+              {k === 'foundation' ? `Foundation · ${FOUNDATION_TARGETS.kcal} kcal / ${FOUNDATION_TARGETS.p}P` : k === 'peak' ? `Peak · ${PEAK_TARGETS.kcal} kcal / ${PEAK_TARGETS.p}P` : 'Custom'}
             </button>
           ))}
         </div>
@@ -708,7 +741,8 @@ export default function NutritionPage() {
             </label>
           ))}
         </div>
-      </div>
+        </div>
+      </details>
 
       <div className="flex gap-2 mb-4">
         <button onClick={() => setView('today')}
@@ -751,6 +785,13 @@ export default function NutritionPage() {
                 {(['breakfast','lunch','dinner','snacks'] as Meal[]).map(slot => <option key={slot} value={slot}>Log next move to {slot}</option>)}
               </select>
             </div>
+            {nutritionGuidance && (
+              <div className="mt-3 rounded-xl border border-emerald-500/10 bg-gray-950/40 px-3 py-2 text-[11px] text-gray-300">
+                <span className="font-semibold text-emerald-300">Evidence-backed range ({trainingType === 'rest' ? 'rest day' : 'training day'}):</span>{' '}
+                {nutritionGuidance.kcalRange[0]}–{nutritionGuidance.kcalRange[1]} kcal · {nutritionGuidance.proteinRangeG[0]}–{nutritionGuidance.proteinRangeG[1]}g protein · fat floor {nutritionGuidance.fatFloorG}g+.
+                Your set target ({fmt(store.targets.kcal)} kcal) is a fixed midpoint — this range is guidance only and never auto-changes it.
+              </div>
+            )}
           </section>
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
           <div>
@@ -779,6 +820,34 @@ export default function NutritionPage() {
           </div>
 
           <aside className="space-y-3 lg:sticky lg:top-4 self-start">
+            <div className="bg-gray-800 rounded-lg p-3 border border-gray-700">
+              <h2 className="font-semibold text-sm mb-1.5">Fasted bodyweight</h2>
+              <div className="flex items-center gap-2">
+                <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                  className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs" />
+                <input type="number" step="0.1" min="0" placeholder="lbs" value={bwInput}
+                  onChange={e => setBwInput(e.target.value)}
+                  className="w-20 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs" />
+                <button
+                  onClick={() => { const v = parseFloat(bwInput); if (Number.isFinite(v) && v > 0) { logBodyweight(date, v); setBwInput(''); } }}
+                  disabled={!bwInput.trim()}
+                  className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 text-xs text-white">
+                  Log
+                </button>
+              </div>
+              <div className="mt-2 text-[11px] text-gray-400">
+                {bodyweight.points.length > 0
+                  ? `${bodyweight.points.length} entr${bodyweight.points.length === 1 ? 'y' : 'ies'} logged · latest ${bodyweight.points.at(-1)!.value}lb on ${bodyweight.points.at(-1)!.date}`
+                  : 'No entries yet — log a fasted weigh-in to start a 3-4 week trend.'}
+              </div>
+              <div className="mt-2 rounded bg-gray-900/70 border border-gray-700 px-2 py-1.5 text-[11px]">
+                <span className="font-semibold text-emerald-300">3–4 week trend: </span>
+                {bodyweightTrend === 'insufficient_data' && <span className="text-gray-400">Need more data — log weigh-ins spanning at least 3 weeks.</span>}
+                {bodyweightTrend === 'hold' && <span className="text-gray-300">Stable — hold your current target.</span>}
+                {bodyweightTrend === 'increase_100_150' && <span className="text-gray-300">Trending down — consider adding roughly 100–150 kcal/day (advice only; targets are not auto-changed).</span>}
+                {bodyweightTrend === 'decrease_100_150' && <span className="text-gray-300">Trending up — consider trimming roughly 100–150 kcal/day (advice only; targets are not auto-changed).</span>}
+              </div>
+            </div>
             <div className="bg-gray-800 rounded-lg p-3 border border-gray-700">
               <div className="flex items-center justify-between gap-2 mb-1.5">
                 <h2 className="font-semibold text-sm">Suggestions to hit goals</h2>

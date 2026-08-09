@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { Nav } from '../components/Nav';
+import { TacticalPageHeader } from '../components/TacticalPageHeader';
 import { WeeklyPlanner } from '../components/WeeklyPlanner';
+import { KnowledgeFocusCard } from '../components/KnowledgeFocusCard';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 import { FOODS, type Food } from '../data/foods';
 import { type UserMeal } from '../data/meals';
@@ -12,6 +13,23 @@ import { forecastTargetDate } from '../lib/progress-forecast';
 import { getPerformanceStats } from '../study/spaced-repetition';
 import { deriveFatigueAreas, buildTailoredMobilitySession } from '../lib/mobility-engine';
 import { MOVES } from '../mobility/page';
+import { FOUNDATION_TARGETS } from '../lib/nutrition-execution';
+import { canonicalTwoMileSeconds, resolveFoundationNutritionGuidance } from '../lib/sfre-program';
+import {
+  countCanonicalMobilityCompletions,
+  hasFoundationWorkoutActivity,
+  type CanonicalMobilityStore,
+  type FoundationCompletionSnapshot,
+} from '../lib/calendar-activity';
+// Architecture Amendment 3 (WS-7): Calendar reads the existing
+// `sfprep:knowledge` store read-only via `normalizeKnowledgeStore` and
+// resolves queued IDs to labels via `deriveKnowledgeFocusSnapshot` against a
+// read-only same-origin fetch of the existing `/pods.json`. This page MUST
+// NEVER import a KnowledgeStore mutation helper (addToQueue/completeItem/
+// deferItem/noteItem/reconcileQueue) and MUST NEVER call pushSfprepSync for
+// the knowledge store — see knowledge-source-contract.test.ts.
+import { normalizeKnowledgeStore, type KnowledgeStore } from '../lib/knowledge-store';
+import { deriveKnowledgeFocusSnapshot, type KnowledgeFocusSnapshot } from '../lib/knowledge-views';
 import { CheckCircle2, AlertCircle, Timer, Dumbbell, Shield, BookOpen, Calendar, HelpCircle, Activity, Heart, ArrowUpRight, Flame, Target } from 'lucide-react';
 
 type NutritionStore = {
@@ -22,6 +40,7 @@ type NutritionStore = {
     snacks: Array<{ foodId: string; servings: number }>;
   }>;
   targets: { kcal: number; p: number; c: number; f: number };
+  preset?: 'foundation' | 'peak' | 'custom';
 };
 
 type StudyStore = {
@@ -33,14 +52,6 @@ type StudyStore = {
   pcDiag?: number;
   lastUpdate?: string;
   spacedRepetition?: any;
-};
-
-type WorkoutStore = {
-  logs: Record<string, { completed: Array<{ exercise: string }> }>;
-};
-
-type MobilityStore = {
-  days: Record<string, { stretches: string[] }>;
 };
 
 type SupplementStore = {
@@ -82,18 +93,37 @@ function getWeekNumber(dayNumber: number): number {
   return Math.ceil(dayNumber / 7);
 }
 
+/** Read-only, throw-safe JSON.parse used only for the WS-7 knowledge read path. */
+function safeJsonParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 export default function CalendarPage() {
   const [today] = useState(() => new Date().toISOString().slice(0, 10));
   const [nutrition, setNutrition] = useState<NutritionStore | null>(null);
   const [study, setStudy] = useState<StudyStore | null>(null);
-  const [workouts, setWorkouts] = useState<WorkoutStore | null>(null);
-  const [mobility, setMobility] = useState<MobilityStore | null>(null);
+  const [workoutCompletions, setWorkoutCompletions] = useState<FoundationCompletionSnapshot>({});
+  const [mobility, setMobility] = useState<CanonicalMobilityStore>({});
   const [sups, setSups] = useState<SupplementStore | null>(null);
   const [metrics, setMetrics] = useState<MetricsStore | null>(null);
   const [userMeals, setUserMeals] = useState<UserMeal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastSync, setLastSync] = useState<number | null>(null);
-  
+
+  // WS-7 (Architecture Amendment 3): read-only Knowledge Focus card state.
+  // `knowledgeStore` is populated by normalizing (never mutating) whatever is
+  // already in `sfprep:knowledge` after the existing pullSfprepSync() below;
+  // `knowledgePods` is a read-only same-origin fetch of the existing
+  // `/pods.json`, mirroring the Pods page's own fetch. Neither write to
+  // storage, call a KnowledgeStore mutation helper, nor call
+  // pushSfprepSync.
+  const [knowledgeStore, setKnowledgeStore] = useState<KnowledgeStore | null>(null);
+  const [knowledgePods, setKnowledgePods] = useState<unknown>(null);
+
   // HUD Selected Day Detail View
   const [selectedDayOffset, setSelectedDayOffset] = useState<number>(0);
 
@@ -111,13 +141,28 @@ export default function CalendarPage() {
         const rawStudy = localStorage.getItem('sfprep:study');
         if (rawStudy) setStudy(JSON.parse(rawStudy));
         
-        const rawWorkouts = localStorage.getItem('sfprep:workouts');
-        if (rawWorkouts) setWorkouts(JSON.parse(rawWorkouts));
+        const canonicalCompletions: FoundationCompletionSnapshot = {};
+        for (let index = 0; index < localStorage.length; index++) {
+          const key = localStorage.key(index);
+          if (!key || !key.startsWith('sfprep:log:foundation:') || !key.endsWith(':completed')) continue;
+          try {
+            const parsed = JSON.parse(localStorage.getItem(key) ?? '[]');
+            canonicalCompletions[key] = Array.isArray(parsed)
+              ? parsed.filter(value => typeof value === 'string')
+              : [];
+          } catch {
+            canonicalCompletions[key] = [];
+          }
+        }
+        setWorkoutCompletions(canonicalCompletions);
         
         const rawMobility = localStorage.getItem('sfprep:mobility');
-        if (rawMobility) setMobility(JSON.parse(rawMobility));
+        if (rawMobility) {
+          const parsed = JSON.parse(rawMobility);
+          setMobility(parsed && typeof parsed === 'object' ? parsed : {});
+        }
         
-        const rawSupps = localStorage.getItem('sfprep:supps');
+        const rawSupps = localStorage.getItem('sfprep:sups') ?? localStorage.getItem('sfprep:supps');
         if (rawSupps) setSups(JSON.parse(rawSupps));
 
         const rawMetrics = localStorage.getItem('sfprep:metrics');
@@ -139,11 +184,17 @@ export default function CalendarPage() {
         const rawRun = localStorage.getItem('sfprep:standards');
         if (rawRun) {
           const parsed = JSON.parse(rawRun);
-          const twoMileSecs = parsed.two_mile_pr_sec;
-          if (twoMileSecs) {
+          const twoMileSecs = canonicalTwoMileSeconds(parsed);
+          if (twoMileSecs !== null) {
             setStandardsAssessment(evaluateSOFMetrics('sfas', 'twoMileRun', twoMileSecs));
           }
         }
+
+        // WS-7: read-only knowledge store read, post-pullSfprepSync. This
+        // reads and normalizes the existing `sfprep:knowledge` key — it
+        // never writes back to storage and never touches a mutation helper.
+        const rawKnowledge = localStorage.getItem('sfprep:knowledge');
+        setKnowledgeStore(normalizeKnowledgeStore(rawKnowledge ? safeJsonParse(rawKnowledge) : null));
         
         setLastSync(Date.now());
         setIsLoading(false);
@@ -153,6 +204,19 @@ export default function CalendarPage() {
       }
     }
     load();
+  }, []);
+
+  // WS-7: read-only same-origin fetch of the existing /pods.json, solely to
+  // resolve queued knowledge IDs into human-readable labels. Mirrors the
+  // Pods page's own fetch call; never writes, never mutates the knowledge
+  // store, never posts anything back.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/pods.json', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => { if (!cancelled) setKnowledgePods(data); })
+      .catch(() => { if (!cancelled) setKnowledgePods(null); });
+    return () => { cancelled = true; };
   }, []);
 
   // Initialize food map with user meals
@@ -186,8 +250,8 @@ export default function CalendarPage() {
       const allEntries = [...dayNutrition.breakfast, ...dayNutrition.lunch, ...dayNutrition.dinner, ...dayNutrition.snacks];
       const macros = computeMacros(allEntries);
 
-      const isWorkoutLogged = workouts?.logs?.[isoDateString] || false;
-      const stretchesCount = mobility?.days?.[isoDateString]?.stretches?.length || 0;
+      const isWorkoutLogged = hasFoundationWorkoutActivity(workoutCompletions, isoDateString);
+      const stretchesCount = countCanonicalMobilityCompletions(mobility, isoDateString);
       
       const dayIndex = getDaysSince(PLAN_D_START, targetDate);
       const weekIndex = getWeekNumber(dayIndex);
@@ -196,7 +260,7 @@ export default function CalendarPage() {
         dayName: weekdays[i],
         isoDate: isoDateString,
         macros,
-        workoutLogged: !!isWorkoutLogged,
+        workoutLogged: isWorkoutLogged,
         mobilityCount: stretchesCount,
         programDay: dayIndex,
         programWeek: weekIndex,
@@ -204,7 +268,7 @@ export default function CalendarPage() {
       });
     }
     return timeline;
-  }, [nutrition, workouts, mobility, today]);
+  }, [nutrition, workoutCompletions, mobility, today]);
 
   // Selected Day detailed compliance analytics
   const selectedDayData = useMemo(() => {
@@ -247,6 +311,17 @@ export default function CalendarPage() {
     return forecastTargetDate(metrics.runPace, PLAN_D_START, target2MileTime, false);
   }, [metrics]);
 
+  // WS-7: pure read-only derivation of the Knowledge Focus snapshot from the
+  // already-normalized store + the read-only pods.json fetch. Never
+  // mutates knowledgeStore; falls back to a safe "unavailable" snapshot
+  // (counts only, no raw IDs) until both pieces have loaded.
+  const knowledgeFocusSnapshot: KnowledgeFocusSnapshot = useMemo(() => {
+    if (!knowledgeStore) {
+      return { available: false, activeCount: 0, reviewCount: 0 };
+    }
+    return deriveKnowledgeFocusSnapshot(knowledgeStore, knowledgePods);
+  }, [knowledgeStore, knowledgePods]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center">
@@ -262,35 +337,17 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Animated background gradient */}
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/10 via-gray-950 to-purple-950/15 pointer-events-none" />
-
-      {/* Hero Section */}
-      <div className="relative bg-gradient-to-b from-blue-950/40 to-transparent backdrop-blur-sm pb-8">
-        <div className="max-w-7xl mx-auto p-4">
-          <div className="mb-6 flex justify-between items-start flex-wrap gap-4 animate-fade-in">
-            <div>
-              <h1 className="text-5xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-400 bg-clip-text text-transparent">
-                Cross-Store HUD Matrix
-              </h1>
-              <p className="text-gray-400 mt-2 text-lg">
-                Adaptive Periodization Calendar · <span className="text-blue-400 font-semibold">Day {planDProgress.day} · Week {planDProgress.week}</span>
-              </p>
-            </div>
-            <div className="text-right">
-              <span className="text-xs text-gray-500 block">LAST TELEMETRY RETRIEVAL</span>
-              <span className="text-xs bg-emerald-500/20 text-emerald-400 font-semibold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 mt-1 border border-emerald-500/20">
-                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                Sync Active (LWW Element CRDT)
-              </span>
-            </div>
-          </div>
-          <Nav />
-        </div>
+    <div className="min-h-screen bg-[#09090a] text-gray-100">
+      <div className="max-w-7xl mx-auto p-4">
+        <TacticalPageHeader
+          eyebrow="Week Plan"
+          title="What happens next?"
+          description="One week of training, meals, mobility, and study in a single operational view. Select a day to inspect its real logs."
+          status={`Day ${planDProgress.day} · Week ${planDProgress.week}`}
+        />
       </div>
 
-      <div className="max-w-7xl mx-auto p-4 -mt-6 relative z-10 space-y-6">
+      <div className="max-w-7xl mx-auto p-4 space-y-6">
         
         {/* Predictive & Standards Analytics Banners */}
         <div className="grid md:grid-cols-2 gap-4">
@@ -300,11 +357,11 @@ export default function CalendarPage() {
                 <Flame className="w-6 h-6 text-blue-400" />
               </div>
               <div>
-                <h4 className="text-xs uppercase tracking-wider text-gray-400 font-bold">Predictive OLS Forecast Target</h4>
+                <h4 className="text-xs uppercase tracking-wider text-gray-400 font-bold">Projected 2-Mile Target</h4>
                 <p className="text-sm font-semibold mt-0.5 text-white">
                   Sub-13:30 2-Mile projection: <span className="text-blue-400 font-mono font-bold">{progressForecasts.dateString}</span>
                 </p>
-                <span className="text-[10px] text-gray-500">Based on multi-point ordinary least squares regression (R²: {progressForecasts.r2.toFixed(2)})</span>
+                <span className="text-[10px] text-gray-500">Trend confidence: {progressForecasts.r2.toFixed(2)}. Projection only.</span>
               </div>
             </div>
           )}
@@ -335,7 +392,7 @@ export default function CalendarPage() {
         <div className="bg-gray-900/60 backdrop-blur-md border border-gray-800/50 rounded-2xl p-6 shadow-2xl">
           <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
             <Calendar className="w-5 h-5 text-blue-400" />
-            7-Day Tactical Matrix Hub
+            This Week
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
             {weeklyTimeline.map((item, idx) => {
@@ -388,6 +445,9 @@ export default function CalendarPage() {
           }}
         />
 
+        {/* WS-7: read-only Knowledge Focus card (Architecture Amendment 3) */}
+        <KnowledgeFocusCard snapshot={knowledgeFocusSnapshot} />
+
         {/* Selected Day compliance HUD */}
         {selectedDayData && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -431,17 +491,31 @@ export default function CalendarPage() {
               </h4>
 
               <div className="space-y-3">
-                <div>
-                  <div className="flex justify-between text-xs mb-1.5">
-                    <span className="text-gray-400">Calorie Target</span>
-                    <span className="font-mono text-gray-200">{Math.round(selectedDayData.macros.kcal)} / 2800 kcal</span>
-                  </div>
-                  <div className="bg-gray-950/60 h-2.5 rounded-full overflow-hidden">
-                    <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-full transition-all duration-700"
-                      style={{ width: `${Math.min(100, (selectedDayData.macros.kcal / 2800) * 100)}%` }}
-                    />
-                  </div>
-                </div>
+                {(() => {
+                  const activeTargetKcal = nutrition?.targets?.kcal ?? FOUNDATION_TARGETS.kcal;
+                  const isFoundationPreset = (nutrition?.preset ?? 'foundation') === 'foundation';
+                  const guidance = isFoundationPreset
+                    ? resolveFoundationNutritionGuidance({ preset: 'foundation', isTrainingDay: selectedDayData.workoutLogged })
+                    : null;
+                  return (
+                    <div>
+                      <div className="flex justify-between text-xs mb-1.5">
+                        <span className="text-gray-400">Calorie Target</span>
+                        <span className="font-mono text-gray-200">{Math.round(selectedDayData.macros.kcal)} / {Math.round(activeTargetKcal)} kcal</span>
+                      </div>
+                      <div className="bg-gray-950/60 h-2.5 rounded-full overflow-hidden">
+                        <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-full transition-all duration-700"
+                          style={{ width: `${Math.min(100, (selectedDayData.macros.kcal / activeTargetKcal) * 100)}%` }}
+                        />
+                      </div>
+                      {guidance && (
+                        <div className="mt-1.5 text-[10px] text-gray-500">
+                          Foundation {selectedDayData.workoutLogged ? 'training-day' : 'rest-day'} range: {guidance.kcalRange[0]}–{guidance.kcalRange[1]} kcal · fat floor {guidance.fatFloorG}g+. Fixed target above is a midpoint, not this range.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div className="grid grid-cols-3 gap-2 text-center mt-4">
                   <div className="p-2 bg-gray-950/40 rounded-lg border border-gray-850">

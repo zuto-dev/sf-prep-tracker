@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { TrendingUp, TrendingDown, Target } from 'lucide-react';
-import { Nav } from '../components/Nav';
+import { TacticalPageHeader } from '../components/TacticalPageHeader';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 import { forecastTargetDate, correlate, type ForecastResult } from '../lib/progress-forecast';
 
@@ -326,26 +326,17 @@ export default function ProgressPage() {
   const programStart = useMemo(() => programStartDate(store), [store]);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Animated background gradient */}
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/20 via-gray-950 to-purple-950/20 pointer-events-none" />
-
-      {/* Hero Section */}
-      <div className="relative bg-gradient-to-b from-blue-950/40 to-transparent backdrop-blur-sm pb-8">
-        <div className="max-w-7xl mx-auto p-4">
-          <div className="mb-6 animate-fade-in">
-            <h1 className="text-5xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-400 bg-clip-text text-transparent">
-              Progress Tracking
-            </h1>
-            <p className="text-gray-400 mt-2 text-lg">
-              Log, monitor, and project the four critical readiness metrics.
-            </p>
-          </div>
-          <Nav />
-        </div>
+    <div className="min-h-screen bg-[#09090a] text-gray-100">
+      <div className="max-w-7xl mx-auto p-4">
+        <TacticalPageHeader
+          eyebrow="Performance"
+          title="Are you improving?"
+          description="Log the few numbers that move selection readiness. Trends and projections stay subordinate to real test results."
+          status={`${Object.values(summary).filter(value => value != null).length}/4 logged`}
+        />
       </div>
 
-      <div className="max-w-7xl mx-auto p-4 -mt-6 relative z-10 space-y-8">
+      <div className="max-w-7xl mx-auto p-4 space-y-8">
         <SuggestionsPanel />
 
         {/* Diagnostic KPI boxes */}

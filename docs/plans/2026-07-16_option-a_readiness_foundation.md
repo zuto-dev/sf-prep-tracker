@@ -23,7 +23,7 @@ The tracker already has real Plan D generation, local exercise logs, Nutrition, 
 ## Resolved defaults
 
 - **Ruck gate:** a 2-mile result at or below 16:00 is required before the app presents a scheduled ruck; otherwise it substitutes the existing long-walk/recovery pattern and explains why. This preserves the user’s ruck-gated Plan D rule.
-- **Metric source:** prefer Standards event history (`sfprep:standards`) for 2-mile seconds; fall back to Progress `runPace` minutes when Standards has no usable entry.
+- **Metric source:** canonical two-mile seconds come ONLY from Standards event history (`sfprep:standards` → `history.twoMileRun`). There is intentionally NO fallback to a generic `progress.runPace` field — that field is a training-pace log, not a certified two-mile time, and using it to clear the ruck gate was the ambiguity bug this cycle removed. See canonical standards history below.
 - **Ruck load:** do not change the existing physical progression automatically in this cycle. The UI labels the gate status; a later SFRE-specific load progression needs its own sourced, deliberate design.
 - **Sync:** retain the Zod-validated versioned delta route and remove only the legacy shell-mounted mirror, without deleting legacy state files in this cycle.
 
@@ -61,17 +61,15 @@ The tracker already has real Plan D generation, local exercise logs, Nutrition, 
 programPosition(date):
   elapsedDays = max(0, floor((date - PLAN_D_START) / dayMs))
   day = elapsedDays + 1
-  globalWeek = ceil(day / 7)
-  phaseIndex = min(2, floor((globalWeek - 1) / 26))
-  return day, globalWeek, phase, phaseWeek
+  foundationWeek = clamp(floor(elapsedDays / 7) + 1, 1, 13)
+  return day, foundationWeek
 
-latestTwoMileSeconds(standards, metrics):
-  latest standards.twoMileRun by valid date -> seconds
-  else latest metrics.runPace -> minutes * 60
-  else null
+canonicalTwoMileSeconds(standards):
+  latest standards.history.twoMileRun by valid date -> seconds
+  else null   // no progress.runPace fallback by design
 
-ruckReadiness(globalWeek, resultSeconds):
-  scheduled = globalWeek >= 7 AND globalWeek odd
+ruckReadiness(foundationWeek, resultSeconds):
+  scheduled = foundationWeek >= 7 AND foundationWeek odd
   if not scheduled: return not-scheduled
   if resultSeconds is null or resultSeconds > 960: return blocked, substitute long walk
   return cleared
@@ -90,6 +88,18 @@ calendarActivity(date, localStorage):
 - `app/page.tsx`: reads synced local data, selects actual current program week, and uses the gate decision to render a safe replacement for scheduled rucks.
 - `app/calendar/page.tsx`: adapters only; reads the actual current key shapes and canonical nutrition targets.
 - `app/layout.tsx`: removes legacy `SyncBoot` mount. Legacy files stay untouched/deprecated in this cycle to avoid destructive state deletion.
+
+## Canonical standards history (post-Workstream-2)
+
+As of SPARC Phase 4 Workstream 2, `app/lib/sfre-program.ts` is the single
+canonical policy owner for the two-mile gate and ruck lock decisions.
+`app/lib/program-state.ts` is now a thin compatibility re-export adapter and
+must not reintroduce independent gate math. `canonicalTwoMileSeconds` reads
+only `standards.history.twoMileRun`; there is no `progress.runPace` fallback
+anywhere in the gate path. `resolveRuckLockState` mechanically locks
+completion/log writes for a scheduled ruck with an unmet gate, and the UI
+(`WorkoutDay.tsx` / `Exercise.tsx`) consumes that decision rather than
+recomputing eligibility inline.
 
 ## Phase gates
 

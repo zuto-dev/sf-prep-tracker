@@ -1,217 +1,398 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { WorkoutDay } from './components/WorkoutDay';
-import { Nav } from './components/Nav';
-import { PHASES, WEEKS_PER_PHASE, type PhaseKey } from './data/workouts';
-import { pullSfprepSync } from './lib/sfprep-sync';
-import { deriveWorkoutHistory, calculateAdaptiveLoad, acwrZone, acwrZoneColor } from './lib/adaptive-engine';
+import { GuidedSession } from './components/GuidedSession';
+import { FOUNDATION_WEEKS, FOUNDATION_WEEK_COUNT } from './data/workouts';
+import {
+  canonicalTwoMileSeconds,
+  FOUNDATION_DAYS,
+  FOUNDATION_START,
+  resolveFoundationWeekIndex,
+  resolveStrictRuckGate,
+} from './lib/sfre-program';
+import {
+  hydrateLifecycleStore,
+  saveLifecycleStore,
+  type LifecycleStore,
+} from './lib/sfre-store';
+import { pullSfprepSync, pushSfprepSync } from './lib/sfprep-sync';
+import {
+  countCompletedDays,
+  describeMission,
+  resolveHomeEventStatus,
+} from './lib/home-dashboard';
 
-const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] as const;
-
-type Patch = {
-  id: string;
-  title: string;
-  action?: string;
-  category?: string;
-  source?: string;
-  approved_at?: string;
+const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+const DAY_SHORT: Record<(typeof DAYS)[number], string> = {
+  monday: 'M', tuesday: 'T', wednesday: 'W', thursday: 'T', friday: 'F', saturday: 'S', sunday: 'S',
+};
+const DAY_FULL: Record<(typeof DAYS)[number], string> = {
+  monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday', thursday: 'Thursday',
+  friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday',
 };
 
-const PATCH_CAT_COLOR: Record<string, { border: string; bg: string; text: string }> = {
-  run: { border: 'border-blue-500', bg: 'bg-blue-500/10', text: 'text-blue-400' },
-  ruck: { border: 'border-amber-500', bg: 'bg-amber-500/10', text: 'text-amber-400' },
-  strength: { border: 'border-emerald-500', bg: 'bg-emerald-500/10', text: 'text-emerald-400' },
-  nutrition: { border: 'border-purple-500', bg: 'bg-purple-500/10', text: 'text-purple-400' },
-  recovery: { border: 'border-cyan-500', bg: 'bg-cyan-500/10', text: 'text-cyan-400' },
-  other: { border: 'border-gray-500', bg: 'bg-gray-500/10', text: 'text-gray-400' },
-};
+const PRIMARY_LINKS = [
+  { href: '/', label: 'Train' },
+  { href: '/standards', label: 'Standards' },
+  { href: '/progress', label: 'Progress' },
+  { href: '/nutrition', label: 'Fuel' },
+];
 
-function ActiveAdjustments() {
-  const [patches, setPatches] = useState<Patch[]>([]);
-  useEffect(() => {
-    fetch('/api/patches')
-      .then(r => r.json())
-      .then(d => setPatches(Array.isArray(d.patches) ? d.patches : []))
-      .catch(() => setPatches([]));
-  }, []);
-  
-  if (!patches.length) return null;
-  
-  return (
-    <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-5 mb-8 border border-green-700/30 shadow-xl shadow-green-500/5 animate-fade-in">
-      <h2 className="text-xl font-bold mb-1 flex items-center gap-2">
-        <span>Active Adjustments</span>
-        <span className="text-xs bg-green-500/20 text-green-400 font-semibold px-2.5 py-0.5 rounded-full">
-          {patches.length} active
-        </span>
-      </h2>
-      <p className="text-xs text-gray-400 mb-4">Research changes you approved. Fold these into the sessions below.</p>
-      <div className="grid sm:grid-cols-2 gap-3">
-        {patches.map((p, i) => {
-          const colors = PATCH_CAT_COLOR[p.category || 'other'] || PATCH_CAT_COLOR.other;
-          return (
-            <div key={p.id} 
-              className={`bg-gray-950/60 rounded-xl p-3 border-l-4 ${colors.border} transition-all duration-300 hover:scale-[1.02] animate-slide-in-left`}
-              style={{ animationDelay: `${i * 100}ms` }}
-            >
-              <div className="text-sm font-semibold text-white">{p.title}</div>
-              {p.action && <div className="text-xs text-gray-300 mt-1">{p.action}</div>}
-              {p.category && (
-                <span className={`inline-block text-[10px] uppercase font-bold tracking-wider mt-2 px-2 py-0.5 rounded ${colors.bg} ${colors.text}`}>
-                  {p.category}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+const MORE_LINKS = [
+  { href: '/mobility', label: 'Mobility' },
+  { href: '/calendar', label: 'Calendar' },
+  { href: '/study', label: 'Study' },
+  { href: '/intel', label: 'Intel' },
+  { href: '/pods', label: 'SF Pod' },
+  { href: '/board-sim', label: 'Board' },
+];
+
+type View = 'home' | 'today' | 'program';
+type CompletionByDay = Partial<Record<(typeof DAYS)[number], string[]>>;
+
+function readCompletion(week: number): CompletionByDay {
+  if (typeof window === 'undefined') return {};
+  const result: CompletionByDay = {};
+  for (const day of DAYS) {
+    const key = `sfprep:log:foundation:${week}:${day}:completed`;
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(key) ?? '[]');
+      result[day] = Array.isArray(parsed) ? parsed.filter(value => typeof value === 'string') : [];
+    } catch {
+      result[day] = [];
+    }
+  }
+  return result;
+}
+
+function readCanonicalTwoMile(): number | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem('sfprep:standards');
+    return canonicalTwoMileSeconds(raw ? JSON.parse(raw) : null);
+  } catch {
+    return null;
+  }
+}
+
+function fmtTime(seconds: number | null): string {
+  if (seconds == null) return 'Not logged';
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(Math.round(seconds % 60)).padStart(2, '0')}`;
+}
+
+function dateInputValue(iso: string | null): string {
+  if (!iso) return '';
+  const parsed = Date.parse(iso);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : '';
 }
 
 export default function Home() {
-  const [phase, setPhase] = useState<PhaseKey>('foundation');
-  const [week, setWeek] = useState(1);
+  const [today] = useState(() => new Date());
+  const currentWeek = resolveFoundationWeekIndex(today);
+  const [selectedWeek, setSelectedWeek] = useState(currentWeek);
+  const [view, setView] = useState<View>('home');
+  const [lifecycle, setLifecycle] = useState<LifecycleStore | null>(null);
+  const [completionByDay, setCompletionByDay] = useState<CompletionByDay>({});
+  const [twoMileSeconds, setTwoMileSeconds] = useState<number | null>(null);
+  const [guidedActive, setGuidedActive] = useState(false);
 
-  const workouts = PHASES[phase].weeks[week - 1];
-  const logKeyPrefix = `sfprep:log:${phase}:${week}`;
+  const todayKey = today.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase() as (typeof DAYS)[number];
+  const currentWorkouts = FOUNDATION_WEEKS[currentWeek - 1];
+  const selectedWorkouts = FOUNDATION_WEEKS[selectedWeek - 1];
+  const todayWorkout = currentWorkouts[todayKey];
+  const mission = describeMission(todayWorkout);
+  const phase = currentWeek <= 6 ? 'Foundation' : currentWeek <= 13 ? 'Build' : currentWeek <= 22 ? 'SFRE Prep' : 'Taper';
+  const dayOfProgram = Math.min(
+    FOUNDATION_DAYS,
+    Math.max(1, Math.floor((today.getTime() - FOUNDATION_START.getTime()) / (24 * 60 * 60 * 1000)) + 1),
+  );
 
-  const exportLog = () => {
-    if (typeof window === 'undefined') return;
-    const out: Record<string, unknown> = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (!k) continue;
-      if (k.startsWith('sfprep:')) {
-        try { out[k] = JSON.parse(localStorage.getItem(k) || 'null'); }
-        catch { out[k] = localStorage.getItem(k); }
-      }
-    }
-    const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `sfprep-log-${new Date().toISOString().slice(0,10)}.json`;
-    a.click(); URL.revokeObjectURL(url);
+  useEffect(() => {
+    let cancelled = false;
+    void pullSfprepSync().finally(() => {
+      if (cancelled) return;
+      const storage = typeof window !== 'undefined' ? window.localStorage : null;
+      setLifecycle(hydrateLifecycleStore(storage));
+      setCompletionByDay(readCompletion(currentWeek));
+      setTwoMileSeconds(readCanonicalTwoMile());
+    });
+    return () => { cancelled = true; };
+  }, [currentWeek]);
+
+  const completion = useMemo(
+    () => countCompletedDays(currentWorkouts, completionByDay),
+    [currentWorkouts, completionByDay],
+  );
+  const eventStatus = resolveHomeEventStatus(lifecycle?.confirmedSfreDate ?? null, today);
+  const ruckGate = resolveStrictRuckGate(twoMileSeconds);
+  const todayCompleted = completion.completedDays.includes(todayKey);
+  const programProgress = Math.round((dayOfProgram / FOUNDATION_DAYS) * 100);
+
+  const goHome = () => {
+    setCompletionByDay(readCompletion(currentWeek));
+    setTwoMileSeconds(readCanonicalTwoMile());
+    setView('home');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const phaseGlobalWeek = useMemo(() => {
-    const idx = (['foundation','build','peak'] as const).indexOf(phase);
-    return idx * WEEKS_PER_PHASE + week;
-  }, [phase, week]);
+  const setConfirmedDate = (value: string) => {
+    if (!lifecycle) return;
+    const next: LifecycleStore = {
+      ...lifecycle,
+      confirmedSfreDate: value ? new Date(`${value}T00:00:00Z`).toISOString() : null,
+    };
+    setLifecycle(next);
+    const storage = typeof window !== 'undefined' ? window.localStorage : null;
+    saveLifecycleStore(next, storage);
+    void pushSfprepSync();
+  };
 
-  return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Animated background gradient */}
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/20 via-gray-950 to-purple-950/20 pointer-events-none" />
-
-      {/* Hero Section */}
-      <div className="relative bg-gradient-to-b from-blue-950/40 to-transparent backdrop-blur-sm pb-8">
-        <div className="max-w-7xl mx-auto p-4">
-          <div className="mb-6 flex justify-between items-start flex-wrap gap-4 animate-fade-in">
-            <div>
-              <h1 className="text-5xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-400 bg-clip-text text-transparent">
-                SF Prep Tracker
-              </h1>
-              <p className="text-gray-400 mt-2 text-lg">
-                Plan D — 18 Month Program · <span className="text-blue-400 font-semibold">Global Week {phaseGlobalWeek}/78</span>
-              </p>
-            </div>
-            <button onClick={exportLog} 
-              className="relative group overflow-hidden bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 px-5 py-2.5 rounded-full text-sm font-bold text-white shadow-lg shadow-emerald-900/30 transition-all duration-300 hover:scale-105 active:scale-95"
-            >
-              <span className="relative z-10 flex items-center gap-2">
-                📥 Export Log JSON
-              </span>
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12 animate-shine pointer-events-none" />
-            </button>
+  if (view === 'today') {
+    return (
+      <Shell>
+        <TopBar onBack={goHome} label="Today" />
+        <section className="mb-5 border-b border-gray-900 pb-5">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-gray-600">{DAY_FULL[todayKey]} · Week {currentWeek}</p>
+          <h1 className="mt-2 text-2xl font-light text-white">{mission.title}</h1>
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[11px] uppercase tracking-[0.12em] text-gray-600">
+            <span>{mission.type}</span>
+            <span>{mission.intensity}</span>
+            <span>{mission.dose}</span>
           </div>
+        </section>
+        <WorkoutDay
+          day={todayKey}
+          workout={todayWorkout}
+          logKeyPrefix={`sfprep:log:foundation:${currentWeek}`}
+          foundationWeek={currentWeek}
+          defaultExpanded
+        />
+        <button
+          onClick={goHome}
+          className="mt-5 w-full border border-gray-800 py-3 text-[11px] font-bold uppercase tracking-[0.15em] text-gray-400 hover:border-gray-700 hover:text-white"
+        >
+          Return to Mission Control
+        </button>
+      </Shell>
+    );
+  }
 
-          <Nav />
-        </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto p-4 -mt-6 relative z-10">
-        <ActiveAdjustments />
-
-        {/* Phase Selector - Glass cards */}
-        <div className="bg-gray-900/60 backdrop-blur-md rounded-2xl p-5 border border-gray-800/50 shadow-xl mb-6">
-          <label className="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-3">Select Program Phase</label>
-          <div className="flex gap-3 flex-wrap">
-            {(['foundation','build','peak'] as PhaseKey[]).map((k, i) => (
-              <button key={k} onClick={() => { setPhase(k); setWeek(1); }}
-                className={`
-                  relative px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 overflow-hidden flex-1 min-w-[200px] text-left border
-                  ${phase === k 
-                    ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white border-blue-500/50 shadow-lg shadow-blue-500/20 scale-105' 
-                    : 'bg-gray-800/40 text-gray-300 hover:bg-gray-800/80 border-gray-700/50 hover:border-gray-600'
-                  }
-                `}
-              >
-                <div className="relative z-10">
-                  <div className="text-base">{PHASES[k].label}</div>
-                  <div className={`text-xs mt-1 ${phase === k ? 'text-blue-100' : 'text-gray-400'}`}>{PHASES[k].months}</div>
-                </div>
-                {phase === k && (
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -skew-x-12 animate-shine" />
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Week Selector */}
-        <div className="bg-gray-900/60 backdrop-blur-md rounded-2xl p-5 border border-gray-800/50 shadow-xl mb-8 flex items-center justify-between flex-wrap gap-4">
+  if (view === 'program') {
+    return (
+      <Shell>
+        <TopBar onBack={goHome} label="Program" />
+        <section className="mb-5 flex items-end justify-between border-b border-gray-900 pb-5">
           <div>
-            <h3 className="text-lg font-bold text-white">Current Week Schedule</h3>
-            <p className="text-sm text-gray-400">Select which week of the {PHASES[phase].label} phase you are in</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-gray-600">The Pipeline</p>
+            <h1 className="mt-2 text-2xl font-light text-white">Week {selectedWeek} of {FOUNDATION_WEEK_COUNT}</h1>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold text-gray-300">Jump to:</span>
-            <select value={week} onChange={e => setWeek(Number(e.target.value))}
-              className="bg-gray-800 hover:bg-gray-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-            >
-              {Array.from({ length: WEEKS_PER_PHASE }, (_, i) => (
-                <option key={i + 1} value={i + 1}>Week {i + 1}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Daily Workouts */}
-        <div className="space-y-4">
-          {DAYS.map((d, i) => (
-            <div key={d} className="animate-slide-in-left" style={{ animationDelay: `${i * 80}ms` }}>
-              <WorkoutDay day={d} workout={workouts[d]} logKeyPrefix={logKeyPrefix} />
-            </div>
+          <select
+            aria-label="Select program week"
+            value={selectedWeek}
+            onChange={event => setSelectedWeek(Number(event.target.value))}
+            className="border border-gray-800 bg-black px-3 py-2 text-xs text-gray-300 focus:border-blue-800 focus:outline-none"
+          >
+            {Array.from({ length: FOUNDATION_WEEK_COUNT }, (_, index) => (
+              <option key={index + 1} value={index + 1}>Week {index + 1}</option>
+            ))}
+          </select>
+        </section>
+        <div className="space-y-2">
+          {DAYS.map(day => (
+            <WorkoutDay
+              key={day}
+              day={day}
+              workout={selectedWorkouts[day]}
+              logKeyPrefix={`sfprep:log:foundation:${selectedWeek}`}
+              foundationWeek={selectedWeek}
+            />
           ))}
         </div>
-      </div>
+      </Shell>
+    );
+  }
 
-      {/* Global CSS animations */}
-      <style jsx global>{`
-        @keyframes fade-in {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes slide-in-left {
-          from { opacity: 0; transform: translateX(-25px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes shine {
-          from { transform: translateX(-100%) skewX(-12deg); }
-          to { transform: translateX(200%) skewX(-12deg); }
-        }
-        .animate-fade-in {
-          animation: fade-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        .animate-slide-in-left {
-          animation: slide-in-left 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        .animate-shine {
-          animation: shine 3s ease-in-out infinite;
-        }
-      `}</style>
+  return (
+    <>
+    <Shell>
+      <header className="mb-7">
+        <div className="flex items-center justify-between">
+          <div className="flex items-baseline gap-3">
+            <span className="text-sm font-bold tracking-[0.3em] text-gray-500">SF</span>
+            <span className="text-sm font-bold tracking-[0.3em] text-white">PREP</span>
+          </div>
+          <details className="relative">
+            <summary className="cursor-pointer list-none text-[10px] font-bold uppercase tracking-[0.15em] text-gray-600 hover:text-gray-300">More</summary>
+            <div className="absolute right-0 z-20 mt-3 w-48 border border-gray-800 bg-[#0d0d0f] p-2 shadow-2xl">
+              {MORE_LINKS.map(link => (
+                <Link key={link.href} href={link.href} className="block px-3 py-2 text-xs text-gray-500 hover:bg-white/5 hover:text-white">
+                  {link.label}
+                </Link>
+              ))}
+            </div>
+          </details>
+        </div>
+        <div className="mt-8">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-gray-600">Mission Control</p>
+          <h1 className="mt-2 text-3xl font-light tracking-tight text-white">Today&apos;s work.</h1>
+          <p className="mt-2 text-xs text-gray-600">Day {dayOfProgram} of {FOUNDATION_DAYS} · {phase} phase · Week {currentWeek}</p>
+        </div>
+      </header>
+
+      <nav className="mb-6 grid grid-cols-4 gap-px bg-gray-900" aria-label="Primary navigation">
+        {PRIMARY_LINKS.map(link => (
+          <Link
+            key={link.href}
+            href={link.href}
+            className={`bg-[#0d0d0f] px-2 py-3 text-center text-[10px] font-bold uppercase tracking-[0.1em] ${link.href === '/' ? 'text-blue-400' : 'text-gray-600 hover:text-white'}`}
+          >
+            {link.label}
+          </Link>
+        ))}
+      </nav>
+
+      <section className={`mb-4 border bg-[#0d0d0f] ${mission.intensity === 'High' ? 'border-red-950' : 'border-gray-900'}`}>
+        <div className="border-b border-gray-900 px-5 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-600">Primary Mission</p>
+            <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-gray-700">{mission.type} · {mission.intensity}</p>
+          </div>
+          <span className={`text-[10px] font-bold uppercase tracking-[0.12em] ${todayCompleted ? 'text-emerald-500' : mission.intensity === 'High' ? 'text-red-500' : 'text-gray-600'}`}>
+            {todayCompleted ? 'Complete' : 'Open'}
+          </span>
+        </div>
+        <div className="px-5 py-5">
+          <h2 className="text-2xl font-light leading-tight text-white">{mission.title}</h2>
+          <p className="mt-2 text-xs text-gray-600">{mission.dose}</p>
+          <ol className="mt-5 space-y-3 border-t border-gray-900 pt-4">
+            {todayWorkout.exercises.map((exercise, index) => (
+              <li key={exercise.id} className="flex gap-3 text-xs">
+                <span className="font-mono text-gray-700">{String(index + 1).padStart(2, '0')}</span>
+                <div className="min-w-0">
+                  <p className="text-gray-300">{exercise.name}</p>
+                  <p className="mt-0.5 truncate text-[10px] text-gray-700">{exercise.duration ?? exercise.distance ?? exercise.reps ?? 'Complete as prescribed'}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+          <button
+            onClick={() => { setGuidedActive(true); window.scrollTo({ top: 0 }); }}
+            className="mt-6 w-full bg-white py-3.5 text-[11px] font-black uppercase tracking-[0.18em] text-black hover:bg-gray-200"
+          >
+            {todayCompleted ? 'Review Session' : 'Start Training'}
+          </button>
+        </div>
+      </section>
+
+      <section className="mb-4 border border-gray-900 bg-[#0d0d0f] px-5 py-4">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-600">This Week</p>
+            <p className="mt-1 text-xs text-gray-700">{completion.completed} of {completion.total} training days complete</p>
+          </div>
+          <p className="font-mono text-sm text-white">{Math.round((completion.completed / completion.total) * 100)}%</p>
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {DAYS.map(day => {
+            const isToday = day === todayKey;
+            const isDone = completion.completedDays.includes(day);
+            return (
+              <div key={day} className="text-center">
+                <div className={`h-1 mb-2 ${isDone ? 'bg-emerald-500' : isToday ? 'bg-blue-500' : 'bg-gray-900'}`} />
+                <span className={`text-[9px] font-bold ${isDone ? 'text-emerald-500' : isToday ? 'text-blue-400' : 'text-gray-700'}`}>{DAY_SHORT[day]}</span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="mb-4 grid grid-cols-2 gap-px bg-gray-900">
+        <div className="bg-[#0d0d0f] p-4">
+          <p className="text-[9px] uppercase tracking-[0.16em] text-gray-700">Event</p>
+          <p className={`mt-2 text-sm ${eventStatus.state === 'date-required' ? 'text-amber-500' : 'text-white'}`}>{eventStatus.label}</p>
+          <p className="mt-1 text-[9px] leading-4 text-gray-700">{eventStatus.detail}</p>
+          <input
+            aria-label="Confirmed SFRE date"
+            type="date"
+            value={dateInputValue(lifecycle?.confirmedSfreDate ?? null)}
+            onChange={event => setConfirmedDate(event.target.value)}
+            className="mt-3 w-full border-b border-gray-800 bg-transparent pb-1 text-[10px] text-gray-500 focus:border-blue-700 focus:outline-none"
+          />
+        </div>
+        <Link href="/standards" className="bg-[#0d0d0f] p-4 hover:bg-white/[0.02]">
+          <p className="text-[9px] uppercase tracking-[0.16em] text-gray-700">Ruck Gate</p>
+          <p className={`mt-2 text-sm ${ruckGate.cleared ? 'text-emerald-500' : 'text-amber-500'}`}>{ruckGate.cleared ? 'Cleared' : 'Locked'}</p>
+          <p className="mt-1 text-[9px] leading-4 text-gray-700">2-mile {fmtTime(twoMileSeconds)} · target 16:00</p>
+          <p className="mt-3 text-[9px] uppercase tracking-[0.12em] text-gray-600">View standards →</p>
+        </Link>
+      </section>
+
+      <button
+        onClick={() => { setSelectedWeek(currentWeek); setView('program'); window.scrollTo({ top: 0 }); }}
+        className="mb-4 w-full border border-gray-900 bg-[#0d0d0f] p-4 text-left hover:border-gray-800"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-600">Program</p>
+            <p className="mt-1 text-sm text-white">SFRE Foundation · Week {currentWeek} of {FOUNDATION_WEEK_COUNT}</p>
+          </div>
+          <span className="text-xs text-gray-700">View →</span>
+        </div>
+        <div className="mt-4 h-1 bg-black">
+          <div className="h-1 bg-blue-600" style={{ width: `${programProgress}%` }} />
+        </div>
+      </button>
+
+      <footer className="pt-2 text-center text-[9px] uppercase tracking-[0.15em] text-gray-800">
+        Foundation catalog is the prescription authority
+      </footer>
+    </Shell>
+
+      {guidedActive && (
+        <GuidedSession
+          workout={todayWorkout}
+          dayKey={todayKey}
+          logKeyPrefix={`sfprep:log:foundation:${currentWeek}`}
+          completedSet={new Set(completionByDay[todayKey] ?? [])}
+          onToggleComplete={(id) => {
+            const key = `sfprep:log:foundation:${currentWeek}:${todayKey}:completed`;
+            if (typeof window === 'undefined') return;
+            try {
+              const raw = localStorage.getItem(key);
+              const set = new Set<string>(raw ? JSON.parse(raw) : []);
+              if (set.has(id)) set.delete(id); else set.add(id);
+              localStorage.setItem(key, JSON.stringify([...set]));
+              void import('./lib/sfprep-sync').then(m => m.pushSfprepSync());
+              setCompletionByDay(prev => {
+                const next = { ...prev };
+                next[todayKey] = [...set];
+                return next;
+              });
+            } catch { /* ignore */ }
+          }}
+          onExit={() => setGuidedActive(false)}
+        />
+      )}
+    </>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="min-h-screen bg-[#09090a] text-gray-200">
+      <div className="mx-auto max-w-xl px-4 pt-7 pb-16">{children}</div>
+    </main>
+  );
+}
+
+function TopBar({ onBack, label }: { onBack: () => void; label: string }) {
+  return (
+    <div className="mb-7 flex items-center justify-between">
+      <button onClick={onBack} className="text-[10px] font-bold uppercase tracking-[0.15em] text-gray-600 hover:text-white">← Mission Control</button>
+      <span className="text-[10px] uppercase tracking-[0.18em] text-gray-700">{label}</span>
     </div>
   );
 }
