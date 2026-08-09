@@ -12,6 +12,7 @@ interface WorkoutDayProps {
   workout: DayWorkout;
   logKeyPrefix: string; // sfprep:log:foundation:1
   foundationWeek: number;
+  defaultExpanded?: boolean;
 }
 
 function completedKey(day: string, logKeyPrefix: string) {
@@ -30,8 +31,8 @@ function loadCompleted(key: string) {
   }
 }
 
-export function WorkoutDay({ day, workout, logKeyPrefix, foundationWeek }: WorkoutDayProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+export function WorkoutDay({ day, workout, logKeyPrefix, foundationWeek, defaultExpanded = false }: WorkoutDayProps) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [completed, setCompleted] = useState<Set<string>>(new Set());
   const [adaptive, setAdaptive] = useState<{ acwr: number; recommendation: string } | null>(null);
   const [dayVolume, setDayVolume] = useState({ loggedVolumeLbs: 0, sessionsLogged: 0 });
@@ -42,30 +43,22 @@ export function WorkoutDay({ day, workout, logKeyPrefix, foundationWeek }: Worko
     if (typeof window === 'undefined') return;
     void pullSfprepSync().finally(() => {
       setCompleted(loadCompleted(key));
-      refreshAdaptive();
-      refreshTwoMile();
+      const history = deriveWorkoutHistory();
+      const volume = deriveDayVolume(logKeyPrefix, day);
+      setDayVolume(volume);
+      const result = calculateAdaptiveLoad(history, { name: day, reps: 0, sets: 0, weightLbs: 100 });
+      setAdaptive({ acwr: result.acwr, recommendation: result.recommendation });
+
+      try {
+        const standardsRaw = localStorage.getItem('sfprep:standards');
+        const standards = standardsRaw ? JSON.parse(standardsRaw) : null;
+        setTwoMileSeconds(canonicalTwoMileSeconds(standards));
+      } catch {
+        setTwoMileSeconds(null);
+      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-
-  function refreshAdaptive() {
-    const history = deriveWorkoutHistory();
-    const volume = deriveDayVolume(logKeyPrefix, day);
-    setDayVolume(volume);
-    const result = calculateAdaptiveLoad(history, { name: day, reps: 0, sets: 0, weightLbs: 100 });
-    setAdaptive({ acwr: result.acwr, recommendation: result.recommendation });
-  }
-
-  function refreshTwoMile() {
-    if (typeof window === 'undefined') return;
-    try {
-      const standardsRaw = localStorage.getItem('sfprep:standards');
-      const standards = standardsRaw ? JSON.parse(standardsRaw) : null;
-      setTwoMileSeconds(canonicalTwoMileSeconds(standards));
-    } catch {
-      setTwoMileSeconds(null);
-    }
-  }
 
   // Single canonical ruck-lock decision for this day's session, owned by the
   // pure sfre-program policy. No local eligibility math lives here.
@@ -97,26 +90,18 @@ export function WorkoutDay({ day, workout, logKeyPrefix, foundationWeek }: Worko
   return (
     <div
       className={`
-        relative overflow-hidden rounded-2xl border backdrop-blur-md transition-all duration-300
-        bg-black/40 shadow-xl
-        ${isComplete ? 'border-emerald-500/40 shadow-emerald-500/10' : 'border-gray-800/50 shadow-black/20 hover:border-gray-700/60'}
+        relative overflow-hidden border bg-[#0d0d0f] transition-colors
+        ${isComplete ? 'border-emerald-900/60' : 'border-gray-900 hover:border-gray-800'}
       `}
     >
-      {/* Radial glow accent */}
-      <div
-        className={`pointer-events-none absolute -top-16 -right-16 w-64 h-64 rounded-full blur-3xl opacity-20 ${
-          isComplete ? 'bg-emerald-500' : 'bg-blue-600'
-        }`}
-      />
-
       <div className="relative p-4">
         <div className="cursor-pointer" onClick={() => setIsExpanded(v => !v)}>
           <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
             <div>
-              <h2 className="text-xl font-semibold capitalize text-white flex items-center gap-2">
+              <h2 className="text-sm font-medium capitalize text-white flex items-center gap-2">
                 {day}
                 {isComplete && (
-                  <span className="text-[10px] uppercase font-bold tracking-wider bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                  <span className="text-[9px] uppercase font-bold tracking-wider text-emerald-500">
                     Complete
                   </span>
                 )}
@@ -126,7 +111,7 @@ export function WorkoutDay({ day, workout, logKeyPrefix, foundationWeek }: Worko
             <div className="flex items-center gap-4">
               {adaptive && (
                 <span
-                  className={`hidden sm:inline-flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border ${zoneColor.bg} ${zoneColor.text} ${zoneColor.border}`}
+                  className={`hidden sm:inline-flex items-center gap-1.5 text-[9px] uppercase font-bold tracking-wider ${zoneColor.text}`}
                   title={adaptive.recommendation}
                 >
                   ACWR {adaptive.acwr.toFixed(2)}
@@ -139,13 +124,9 @@ export function WorkoutDay({ day, workout, logKeyPrefix, foundationWeek }: Worko
               </svg>
             </div>
           </div>
-          <div className="w-full bg-gray-800/60 rounded-full h-2 overflow-hidden">
+          <div className="w-full bg-black h-px overflow-hidden">
             <div
-              className={`h-2 rounded-full transition-all duration-700 ease-out ${
-                isComplete
-                  ? 'bg-gradient-to-r from-emerald-500 to-teal-400 shadow-[0_0_8px_rgba(16,185,129,0.6)]'
-                  : 'bg-gradient-to-r from-blue-600 to-blue-400'
-              }`}
+              className={`h-px transition-all duration-500 ${isComplete ? 'bg-emerald-500' : 'bg-blue-600'}`}
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -154,7 +135,7 @@ export function WorkoutDay({ day, workout, logKeyPrefix, foundationWeek }: Worko
         {isExpanded && (
           <div className="mt-4 space-y-3">
             {adaptive && (
-              <div className={`rounded-xl p-3 border text-xs ${zoneColor.bg} ${zoneColor.border} ${zoneColor.text}`}>
+              <div className={`p-3 border text-xs ${zoneColor.bg} ${zoneColor.border} ${zoneColor.text}`}>
                 <div className="flex justify-between items-center mb-1">
                   <span className="font-bold uppercase tracking-wider">Adaptive Load Engine</span>
                   <span className="font-mono">Logged {dayVolume.loggedVolumeLbs.toLocaleString()} lb · {dayVolume.sessionsLogged} sessions</span>
@@ -175,7 +156,7 @@ export function WorkoutDay({ day, workout, logKeyPrefix, foundationWeek }: Worko
                       <div
                         role="alert"
                         aria-live="polite"
-                        className="rounded-xl p-3 mb-3 border text-xs bg-red-500/10 border-red-500/30 text-red-400"
+                        className="p-3 mb-3 border text-xs bg-red-500/10 border-red-500/30 text-red-400"
                       >
                         <div className="flex items-center gap-2 mb-1">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

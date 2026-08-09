@@ -1,383 +1,368 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { WorkoutDay } from './components/WorkoutDay';
-import { SfreLifecycle } from './components/SfreLifecycle';
-import { Nav } from './components/Nav';
-import { FOUNDATION_WEEKS, FOUNDATION_WEEK_COUNT, type DayWorkout } from './data/workouts';
+import { FOUNDATION_WEEKS, FOUNDATION_WEEK_COUNT } from './data/workouts';
 import {
-  resolveFoundationWeekIndex,
-  FOUNDATION_START,
+  canonicalTwoMileSeconds,
   FOUNDATION_DAYS,
+  FOUNDATION_START,
+  resolveFoundationWeekIndex,
+  resolveStrictRuckGate,
 } from './lib/sfre-program';
+import {
+  hydrateLifecycleStore,
+  saveLifecycleStore,
+  type LifecycleStore,
+} from './lib/sfre-store';
+import { pullSfprepSync, pushSfprepSync } from './lib/sfprep-sync';
+import {
+  countCompletedDays,
+  describeMission,
+  resolveHomeEventStatus,
+} from './lib/home-dashboard';
 
-const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] as const;
-const DAY_LABELS: Record<string, string> = {
-  monday: 'MON', tuesday: 'TUE', wednesday: 'WED', thursday: 'THU',
-  friday: 'FRI', saturday: 'SAT', sunday: 'SUN',
+const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+const DAY_SHORT: Record<(typeof DAYS)[number], string> = {
+  monday: 'M', tuesday: 'T', wednesday: 'W', thursday: 'T', friday: 'F', saturday: 'S', sunday: 'S',
 };
-const DAY_FULL: Record<string, string> = {
+const DAY_FULL: Record<(typeof DAYS)[number], string> = {
   monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday', thursday: 'Thursday',
   friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday',
 };
 
-// --- Session type detection from workout title ---
-function getSessionType(title?: string): { type: string; intensity: string } {
-  if (!title) return { type: 'REST', intensity: 'Recovery' };
-  const t = title.toLowerCase();
-  if (t.includes('rest')) return { type: 'REST', intensity: 'Recovery' };
-  if (t.includes('speed') || t.includes('sprint') || t.includes('interval')) return { type: 'SPEED', intensity: 'High' };
-  if (t.includes('tempo') || t.includes('time trial') || t.includes('test')) return { type: 'TEST', intensity: 'High' };
-  if (t.includes('recovery')) return { type: 'RECOVERY', intensity: 'Low' };
-  if (t.includes('ruck')) return { type: 'RUCK', intensity: 'Moderate' };
-  if (t.includes('upper') || t.includes('lower') || t.includes('strength')) return { type: 'STRENGTH', intensity: 'Moderate' };
-  if (t.includes('work capacity') || t.includes('pt test')) return { type: 'WORK CAP', intensity: 'High' };
-  if (t.includes('easy') || t.includes('run')) return { type: 'RUN', intensity: 'Low' };
-  return { type: 'TRAIN', intensity: 'Moderate' };
-}
+const PRIMARY_LINKS = [
+  { href: '/', label: 'Train' },
+  { href: '/standards', label: 'Standards' },
+  { href: '/progress', label: 'Progress' },
+  { href: '/nutrition', label: 'Fuel' },
+];
 
-// --- Streak calculation from localStorage ---
-function getStreak(): number {
-  if (typeof window === 'undefined') return 0;
-  const today = new Date();
-  let streak = 0;
-  for (let i = 0; i < 365; i++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().slice(0, 10);
-    let found = false;
-    for (let j = 0; j < window.localStorage.length; j++) {
-      const k = window.localStorage.key(j);
-      if (!k) continue;
-      if (k.includes(`:${dateStr}`)) { found = true; break; }
-    }
-    if (found) {
-      streak++;
-    } else if (i > 0) {
-      break;
+const MORE_LINKS = [
+  { href: '/mobility', label: 'Mobility' },
+  { href: '/calendar', label: 'Calendar' },
+  { href: '/study', label: 'Study' },
+  { href: '/intel', label: 'Intel' },
+  { href: '/pods', label: 'SF Pod' },
+  { href: '/board-sim', label: 'Board' },
+];
+
+type View = 'home' | 'today' | 'program';
+type CompletionByDay = Partial<Record<(typeof DAYS)[number], string[]>>;
+
+function readCompletion(week: number): CompletionByDay {
+  if (typeof window === 'undefined') return {};
+  const result: CompletionByDay = {};
+  for (const day of DAYS) {
+    const key = `sfprep:log:foundation:${week}:${day}:completed`;
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(key) ?? '[]');
+      result[day] = Array.isArray(parsed) ? parsed.filter(value => typeof value === 'string') : [];
+    } catch {
+      result[day] = [];
     }
   }
-  return streak;
+  return result;
 }
 
-// --- Days to ship ---
-function getDaysToShip(): number {
-  const estimatedShip = new Date(FOUNDATION_START);
-  estimatedShip.setDate(estimatedShip.getDate() + 365);
-  const now = new Date();
-  return Math.max(0, Math.ceil((estimatedShip.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-}
-
-// --- Weekly completion ---
-function getWeeklyCompletion(week: number): { completed: number; total: number } {
-  if (typeof window === 'undefined') return { completed: 0, total: 7 };
-  const total = 7;
-  let completed = 0;
-  const weekStart = new Date(FOUNDATION_START);
-  weekStart.setDate(weekStart.getDate() + (week - 1) * 7);
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + i);
-    const dateStr = d.toISOString().slice(0, 10);
-    for (let j = 0; j < window.localStorage.length; j++) {
-      const k = window.localStorage.key(j);
-      if (!k) continue;
-      if (k.includes(`:${dateStr}`) && k.includes('completed')) { completed++; break; }
-    }
+function readCanonicalTwoMile(): number | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem('sfprep:standards');
+    return canonicalTwoMileSeconds(raw ? JSON.parse(raw) : null);
+  } catch {
+    return null;
   }
-  return { completed, total };
 }
 
-const INTENSITY_STYLES: Record<string, string> = {
-  'High': 'border-l-2 border-l-red-600/60',
-  'Moderate': 'border-l-2 border-l-amber-600/60',
-  'Low': 'border-l-2 border-l-gray-700',
-  'Recovery': 'border-l-2 border-l-gray-800',
-};
+function fmtTime(seconds: number | null): string {
+  if (seconds == null) return 'Not logged';
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(Math.round(seconds % 60)).padStart(2, '0')}`;
+}
+
+function dateInputValue(iso: string | null): string {
+  if (!iso) return '';
+  const parsed = Date.parse(iso);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : '';
+}
 
 export default function Home() {
-  const [week, setWeek] = useState<number>(() => resolveFoundationWeekIndex(new Date()));
-  const [streak, setStreak] = useState(0);
-  const [daysToShip, setDaysToShip] = useState(0);
-  const [weeklyComp, setWeeklyComp] = useState({ completed: 0, total: 7 });
-  const [mounted, setMounted] = useState(false);
+  const [today] = useState(() => new Date());
+  const currentWeek = resolveFoundationWeekIndex(today);
+  const [selectedWeek, setSelectedWeek] = useState(currentWeek);
+  const [view, setView] = useState<View>('home');
+  const [lifecycle, setLifecycle] = useState<LifecycleStore | null>(null);
+  const [completionByDay, setCompletionByDay] = useState<CompletionByDay>({});
+  const [twoMileSeconds, setTwoMileSeconds] = useState<number | null>(null);
+
+  const todayKey = today.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase() as (typeof DAYS)[number];
+  const currentWorkouts = FOUNDATION_WEEKS[currentWeek - 1];
+  const selectedWorkouts = FOUNDATION_WEEKS[selectedWeek - 1];
+  const todayWorkout = currentWorkouts[todayKey];
+  const mission = describeMission(todayWorkout);
+  const phase = currentWeek <= 6 ? 'Base' : currentWeek <= 9 ? 'Build' : 'Peak';
+  const dayOfProgram = Math.min(
+    FOUNDATION_DAYS,
+    Math.max(1, Math.floor((today.getTime() - FOUNDATION_START.getTime()) / (24 * 60 * 60 * 1000)) + 1),
+  );
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      setMounted(true);
-      setStreak(getStreak());
-      setDaysToShip(getDaysToShip());
-      setWeeklyComp(getWeeklyCompletion(week));
+    let cancelled = false;
+    void pullSfprepSync().finally(() => {
+      if (cancelled) return;
+      const storage = typeof window !== 'undefined' ? window.localStorage : null;
+      setLifecycle(hydrateLifecycleStore(storage));
+      setCompletionByDay(readCompletion(currentWeek));
+      setTwoMileSeconds(readCanonicalTwoMile());
     });
-    return () => window.cancelAnimationFrame(frame);
-  }, [week]);
+    return () => { cancelled = true; };
+  }, [currentWeek]);
 
-  const workouts = FOUNDATION_WEEKS[week - 1];
-  const logKeyPrefix = `sfprep:log:foundation:${week}`;
+  const completion = useMemo(
+    () => countCompletedDays(currentWorkouts, completionByDay),
+    [currentWorkouts, completionByDay],
+  );
+  const eventStatus = resolveHomeEventStatus(lifecycle?.confirmedSfreDate ?? null, today);
+  const ruckGate = resolveStrictRuckGate(twoMileSeconds);
+  const todayCompleted = completion.completedDays.includes(todayKey);
+  const programProgress = Math.round((dayOfProgram / FOUNDATION_DAYS) * 100);
 
-  const todayDow = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-  const todayWorkout: DayWorkout | undefined = workouts?.[todayDow as keyof typeof workouts];
-  const todaySession = getSessionType(todayWorkout?.title);
-  const isRestDay = todaySession.type === 'REST';
-
-  const phase = week <= 6 ? 'BASE' : week <= 9 ? 'BUILD' : 'PEAK';
-  const dayOfProgram = Math.min(FOUNDATION_DAYS, Math.max(1, Math.floor((new Date().getTime() - FOUNDATION_START.getTime()) / (1000 * 60 * 60 * 24)) + 1));
-
-  const weekPct = Math.round((weeklyComp.completed / weeklyComp.total) * 100);
-  const circumference = 2 * Math.PI * 42;
-  const dashOffset = circumference - (weekPct / 100) * circumference;
-
-  const exportLog = () => {
-    if (typeof window === 'undefined') return;
-    const out: Record<string, unknown> = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (!k) continue;
-      if (k.startsWith('sfprep:')) {
-        try { out[k] = JSON.parse(localStorage.getItem(k) || 'null'); }
-        catch { out[k] = localStorage.getItem(k); }
-      }
-    }
-    const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `sfprep-log-${new Date().toISOString().slice(0,10)}.json`;
-    a.click(); URL.revokeObjectURL(url);
+  const goHome = () => {
+    setCompletionByDay(readCompletion(currentWeek));
+    setTwoMileSeconds(readCanonicalTwoMile());
+    setView('home');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  return (
-    <div className="min-h-screen bg-[#0a0a0b] text-gray-200">
-      {/* Subtle top glow */}
-      <div className="fixed inset-0 pointer-events-none" style={{
-        background: 'linear-gradient(180deg, rgba(20,20,25,0.6) 0%, transparent 30vh)',
-      }} />
+  const setConfirmedDate = (value: string) => {
+    if (!lifecycle) return;
+    const next: LifecycleStore = {
+      ...lifecycle,
+      confirmedSfreDate: value ? new Date(`${value}T00:00:00Z`).toISOString() : null,
+    };
+    setLifecycle(next);
+    const storage = typeof window !== 'undefined' ? window.localStorage : null;
+    saveLifecycleStore(next, storage);
+    void pushSfprepSync();
+  };
 
-      <div className="relative z-10">
-        <div className="max-w-2xl mx-auto px-5 pt-8 pb-4">
-
-          {/* === HEADER === */}
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-baseline gap-3">
-              <span className="text-sm font-bold tracking-[0.3em] text-gray-400">SF</span>
-              <span className="text-sm font-bold tracking-[0.3em] text-white">PREP</span>
-            </div>
-            <button
-              onClick={exportLog}
-              className="text-[10px] uppercase tracking-wider text-gray-600 hover:text-gray-400 transition-colors"
-            >
-              Export Log
-            </button>
+  if (view === 'today') {
+    return (
+      <Shell>
+        <TopBar onBack={goHome} label="Today" />
+        <section className="mb-5 border-b border-gray-900 pb-5">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-gray-600">{DAY_FULL[todayKey]} · Week {currentWeek}</p>
+          <h1 className="mt-2 text-2xl font-light text-white">{mission.title}</h1>
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[11px] uppercase tracking-[0.12em] text-gray-600">
+            <span>{mission.type}</span>
+            <span>{mission.intensity}</span>
+            <span>{mission.dose}</span>
           </div>
+        </section>
+        <WorkoutDay
+          day={todayKey}
+          workout={todayWorkout}
+          logKeyPrefix={`sfprep:log:foundation:${currentWeek}`}
+          foundationWeek={currentWeek}
+          defaultExpanded
+        />
+        <button
+          onClick={goHome}
+          className="mt-5 w-full border border-gray-800 py-3 text-[11px] font-bold uppercase tracking-[0.15em] text-gray-400 hover:border-gray-700 hover:text-white"
+        >
+          Return to Mission Control
+        </button>
+      </Shell>
+    );
+  }
 
-          {/* === GREETING === */}
-          <div className="mb-8">
-            <h1 className="text-2xl font-light tracking-tight text-white">
-              Stay Frosty.
-            </h1>
-            <p className="text-[11px] text-gray-600 mt-2 tracking-[0.15em] uppercase">
-              Day {mounted ? dayOfProgram : '—'} / {FOUNDATION_DAYS} · Phase {phase} · Week {week}/{FOUNDATION_WEEK_COUNT}
-            </p>
+  if (view === 'program') {
+    return (
+      <Shell>
+        <TopBar onBack={goHome} label="Program" />
+        <section className="mb-5 flex items-end justify-between border-b border-gray-900 pb-5">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-gray-600">SFRE Foundation</p>
+            <h1 className="mt-2 text-2xl font-light text-white">Week {selectedWeek} of {FOUNDATION_WEEK_COUNT}</h1>
           </div>
-
-          {/* === TOP METRICS ROW === */}
-          <div className="grid grid-cols-2 gap-px bg-gray-900/50 rounded-lg overflow-hidden mb-6">
-            {/* Days to Ship */}
-            <div className="bg-[#0d0d0f] p-4">
-              <div className="text-[10px] text-gray-600 uppercase tracking-[0.15em] mb-2">Days to Ship</div>
-              <div className="text-3xl font-light text-white tabular-nums">
-                {mounted ? daysToShip : '—'}
-              </div>
-              <div className="text-[10px] text-gray-700 mt-1">Est. SFRE window</div>
-            </div>
-
-            {/* Streak */}
-            <div className="bg-[#0d0d0f] p-4">
-              <div className="text-[10px] text-gray-600 uppercase tracking-[0.15em] mb-2">Streak</div>
-              <div className="text-3xl font-light text-white tabular-nums">
-                {mounted ? streak : 0}
-              </div>
-              <div className="text-[10px] text-gray-700 mt-1">
-                {streak === 0 ? 'No active streak' : `${streak} day${streak !== 1 ? 's' : ''}`}
-              </div>
-            </div>
-          </div>
-
-          {/* === WEEKLY COMPLETION === */}
-          <div className="bg-[#0d0d0f] rounded-lg p-5 mb-6 flex items-center gap-6">
-            {/* Ring */}
-            <div className="relative w-24 h-24 flex-shrink-0">
-              <svg className="w-24 h-24 -rotate-90" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="42" fill="none" stroke="rgb(20,20,25)" strokeWidth="3" />
-                <circle
-                  cx="50" cy="50" r="42" fill="none"
-                  stroke={weekPct === 100 ? 'rgb(16,185,129)' : 'rgb(59,130,246)'}
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeDasharray={circumference}
-                  strokeDashoffset={mounted ? dashOffset : circumference}
-                  style={{ transition: 'stroke-dashoffset 0.8s cubic-bezier(0.16,1,0.3,1)' }}
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-xl font-light text-white tabular-nums">{mounted ? weekPct : 0}%</span>
-              </div>
-            </div>
-            {/* Day bar */}
-            <div className="flex-1">
-              <div className="text-[10px] text-gray-600 uppercase tracking-[0.15em] mb-3">This Week</div>
-              <div className="flex gap-1">
-                {DAYS.map((d) => {
-                  const dayDate = new Date(FOUNDATION_START);
-                  dayDate.setDate(dayDate.getDate() + (week - 1) * 7 + DAYS.indexOf(d));
-                  const dateStr = dayDate.toISOString().slice(0, 10);
-                  let done = false;
-                  if (mounted) {
-                    for (let j = 0; j < window.localStorage.length; j++) {
-                      const k = window.localStorage.key(j);
-                      if (k && k.includes(`${dateStr}`) && k.includes('completed')) { done = true; break; }
-                    }
-                  }
-                  const isToday = d === todayDow;
-                  return (
-                    <div key={d} className="flex flex-col items-center gap-1.5">
-                      <div
-                        className={`w-7 h-7 flex items-center justify-center text-[9px] font-bold tracking-wider ${
-                          done
-                            ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-800/50'
-                            : isToday
-                            ? 'bg-blue-950/50 text-blue-500 border border-blue-800/50'
-                            : 'bg-black/40 text-gray-700 border border-gray-900'
-                        }`}
-                      >
-                        {DAY_LABELS[d]}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="text-[10px] text-gray-700 mt-2.5 tracking-wider">
-                {mounted ? `${weeklyComp.completed}/${weeklyComp.total}` : '0/7'} DAYS COMPLETE
-              </div>
-            </div>
-          </div>
-
-          {/* === TODAY'S MISSION === */}
-          <Link href="#workout" className="block mb-6">
-            <div className={`rounded-lg p-5 ${INTENSITY_STYLES[todaySession.intensity] || ''} bg-[#0d0d0f] border border-gray-900/50 hover:border-gray-800 transition-colors`}>
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-[10px] text-gray-600 uppercase tracking-[0.15em]">Today&apos;s Mission</div>
-                <div className={`text-[10px] font-bold tracking-wider px-2 py-0.5 ${
-                  todaySession.intensity === 'High' ? 'text-red-500' :
-                  todaySession.intensity === 'Moderate' ? 'text-amber-600' :
-                  'text-gray-600'
-                }`}>
-                  {todaySession.intensity.toUpperCase()}
-                </div>
-              </div>
-              <div className="mb-3">
-                <div className="text-base font-medium text-white tracking-wide">
-                  {isRestDay ? 'Rest Day' : todaySession.type}
-                </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {todayWorkout?.title || (isRestDay ? 'Active recovery optional' : 'Training session')}
-                </div>
-              </div>
-              {!isRestDay && todayWorkout?.exercises && todayWorkout.exercises.length > 0 && (
-                <div className="text-[10px] text-gray-700 tracking-wider uppercase mb-4">
-                  {todayWorkout.exercises.length} Exercises · {todayWorkout.exercises.reduce((acc, e) => acc + (e.sets || 0), 0)} Sets
-                </div>
-              )}
-              <div className={`flex items-center justify-center gap-2 py-2.5 text-xs font-medium tracking-[0.1em] uppercase ${
-                isRestDay
-                  ? 'bg-black/30 text-gray-600'
-                  : 'bg-white/5 text-white border border-gray-800 hover:bg-white/10'
-              } transition-colors`}>
-                {isRestDay ? 'Recover' : 'Start Training'}
-              </div>
-              {!isRestDay && (
-                <div className="text-[10px] text-gray-700 mt-2 text-center tracking-wider">
-                  {DAY_FULL[todayDow]} · Week {week}
-                </div>
-              )}
-            </div>
-          </Link>
-
-          {/* === PROGRAM BRIEF === */}
-          <Link href="#weekly" className="block mb-6">
-            <div className="bg-[#0d0d0f] rounded-lg p-4 border border-gray-900/50 flex items-center justify-between hover:border-gray-800 transition-colors">
-              <div>
-                <div className="text-[10px] text-gray-600 uppercase tracking-[0.15em] mb-1">Your Program</div>
-                <div className="text-sm font-medium text-white">SFRE Foundation · Phase {phase}</div>
-                <div className="text-[10px] text-gray-600 mt-0.5 tracking-wider">Week {week} of {FOUNDATION_WEEK_COUNT}</div>
-              </div>
-              <div className="text-gray-700 text-sm">→</div>
-            </div>
-          </Link>
-
-          {/* Nav */}
-          <div className="mb-6">
-            <Nav />
-          </div>
-
-          {/* Lifecycle */}
-          <div id="lifecycle">
-            <SfreLifecycle />
-          </div>
-
-          {/* === WEEKLY SCHEDULE === */}
-          <div id="weekly" className="mt-8">
-            <div className="bg-[#0d0d0f] rounded-lg p-4 border border-gray-900/50 mb-4 flex items-center justify-between flex-wrap gap-4">
-              <div>
-                <h3 className="text-sm font-medium text-white tracking-wide">Week {week} Schedule</h3>
-                <p className="text-[10px] text-gray-600 mt-0.5 tracking-wider uppercase">Select week to inspect</p>
-              </div>
-              <select value={week} onChange={e => setWeek(Number(e.target.value))}
-                className="bg-black/40 text-white font-medium px-3 py-2 rounded text-xs border border-gray-800 focus:outline-none focus:ring-1 focus:ring-blue-600 cursor-pointer"
-              >
-                {Array.from({ length: FOUNDATION_WEEK_COUNT }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>Week {i + 1}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Day cards */}
-            <div id="workout" className="space-y-3">
-              {DAYS.map((d, i) => {
-                const w = workouts?.[d as keyof typeof workouts];
-                const s = getSessionType(w?.title);
-                const isToday = d === todayDow;
-                return (
-                  <div key={d} className="animate-slide-in-left" style={{ animationDelay: `${i * 50}ms` }}>
-                    {/* Day header bar */}
-                    <div className={`flex items-center gap-3 px-4 py-2 border-t border-l border-r border-gray-900/50 rounded-t-lg ${
-                      isToday ? 'bg-blue-950/20 border-blue-900/40' : 'bg-black/30'
-                    }`}>
-                      <span className={`text-[10px] font-bold tracking-[0.1em] ${isToday ? 'text-blue-500' : 'text-gray-500'}`}>
-                        {DAY_FULL[d].toUpperCase()}
-                      </span>
-                      <span className="text-[9px] text-gray-700 tracking-wider uppercase ml-auto">{s.type}</span>
-                      {isToday && <span className="text-[9px] text-blue-600 font-bold tracking-wider">TODAY</span>}
-                    </div>
-                    <WorkoutDay day={d} workout={w} logKeyPrefix={logKeyPrefix} foundationWeek={week} />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <select
+            aria-label="Select program week"
+            value={selectedWeek}
+            onChange={event => setSelectedWeek(Number(event.target.value))}
+            className="border border-gray-800 bg-black px-3 py-2 text-xs text-gray-300 focus:border-blue-800 focus:outline-none"
+          >
+            {Array.from({ length: FOUNDATION_WEEK_COUNT }, (_, index) => (
+              <option key={index + 1} value={index + 1}>Week {index + 1}</option>
+            ))}
+          </select>
+        </section>
+        <div className="space-y-2">
+          {DAYS.map(day => (
+            <WorkoutDay
+              key={day}
+              day={day}
+              workout={selectedWorkouts[day]}
+              logKeyPrefix={`sfprep:log:foundation:${selectedWeek}`}
+              foundationWeek={selectedWeek}
+            />
+          ))}
         </div>
-      </div>
+      </Shell>
+    );
+  }
 
-      {/* Animations */}
-      <style jsx global>{`
-        @keyframes slide-in-left {
-          from { opacity: 0; transform: translateX(-10px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        .animate-slide-in-left {
-          animation: slide-in-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-      `}</style>
+  return (
+    <Shell>
+      <header className="mb-7">
+        <div className="flex items-center justify-between">
+          <div className="flex items-baseline gap-3">
+            <span className="text-sm font-bold tracking-[0.3em] text-gray-500">SF</span>
+            <span className="text-sm font-bold tracking-[0.3em] text-white">PREP</span>
+          </div>
+          <details className="relative">
+            <summary className="cursor-pointer list-none text-[10px] font-bold uppercase tracking-[0.15em] text-gray-600 hover:text-gray-300">More</summary>
+            <div className="absolute right-0 z-20 mt-3 w-48 border border-gray-800 bg-[#0d0d0f] p-2 shadow-2xl">
+              {MORE_LINKS.map(link => (
+                <Link key={link.href} href={link.href} className="block px-3 py-2 text-xs text-gray-500 hover:bg-white/5 hover:text-white">
+                  {link.label}
+                </Link>
+              ))}
+            </div>
+          </details>
+        </div>
+        <div className="mt-8">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-gray-600">Mission Control</p>
+          <h1 className="mt-2 text-3xl font-light tracking-tight text-white">Today&apos;s work.</h1>
+          <p className="mt-2 text-xs text-gray-600">Day {dayOfProgram} of {FOUNDATION_DAYS} · {phase} phase · Week {currentWeek}</p>
+        </div>
+      </header>
+
+      <nav className="mb-6 grid grid-cols-4 gap-px bg-gray-900" aria-label="Primary navigation">
+        {PRIMARY_LINKS.map(link => (
+          <Link
+            key={link.href}
+            href={link.href}
+            className={`bg-[#0d0d0f] px-2 py-3 text-center text-[10px] font-bold uppercase tracking-[0.1em] ${link.href === '/' ? 'text-blue-400' : 'text-gray-600 hover:text-white'}`}
+          >
+            {link.label}
+          </Link>
+        ))}
+      </nav>
+
+      <section className={`mb-4 border bg-[#0d0d0f] ${mission.intensity === 'High' ? 'border-red-950' : 'border-gray-900'}`}>
+        <div className="border-b border-gray-900 px-5 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-600">Primary Mission</p>
+            <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-gray-700">{mission.type} · {mission.intensity}</p>
+          </div>
+          <span className={`text-[10px] font-bold uppercase tracking-[0.12em] ${todayCompleted ? 'text-emerald-500' : mission.intensity === 'High' ? 'text-red-500' : 'text-gray-600'}`}>
+            {todayCompleted ? 'Complete' : 'Open'}
+          </span>
+        </div>
+        <div className="px-5 py-5">
+          <h2 className="text-2xl font-light leading-tight text-white">{mission.title}</h2>
+          <p className="mt-2 text-xs text-gray-600">{mission.dose}</p>
+          <ol className="mt-5 space-y-3 border-t border-gray-900 pt-4">
+            {todayWorkout.exercises.map((exercise, index) => (
+              <li key={exercise.id} className="flex gap-3 text-xs">
+                <span className="font-mono text-gray-700">{String(index + 1).padStart(2, '0')}</span>
+                <div className="min-w-0">
+                  <p className="text-gray-300">{exercise.name}</p>
+                  <p className="mt-0.5 truncate text-[10px] text-gray-700">{exercise.duration ?? exercise.distance ?? exercise.reps ?? 'Complete as prescribed'}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+          <button
+            onClick={() => { setView('today'); window.scrollTo({ top: 0 }); }}
+            className="mt-6 w-full bg-white py-3.5 text-[11px] font-black uppercase tracking-[0.18em] text-black hover:bg-gray-200"
+          >
+            {todayCompleted ? 'Review Session' : 'Start Training'}
+          </button>
+        </div>
+      </section>
+
+      <section className="mb-4 border border-gray-900 bg-[#0d0d0f] px-5 py-4">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-600">This Week</p>
+            <p className="mt-1 text-xs text-gray-700">{completion.completed} of {completion.total} training days complete</p>
+          </div>
+          <p className="font-mono text-sm text-white">{Math.round((completion.completed / completion.total) * 100)}%</p>
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {DAYS.map(day => {
+            const isToday = day === todayKey;
+            const isDone = completion.completedDays.includes(day);
+            return (
+              <div key={day} className="text-center">
+                <div className={`h-1 mb-2 ${isDone ? 'bg-emerald-500' : isToday ? 'bg-blue-500' : 'bg-gray-900'}`} />
+                <span className={`text-[9px] font-bold ${isDone ? 'text-emerald-500' : isToday ? 'text-blue-400' : 'text-gray-700'}`}>{DAY_SHORT[day]}</span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="mb-4 grid grid-cols-2 gap-px bg-gray-900">
+        <div className="bg-[#0d0d0f] p-4">
+          <p className="text-[9px] uppercase tracking-[0.16em] text-gray-700">Event</p>
+          <p className={`mt-2 text-sm ${eventStatus.state === 'date-required' ? 'text-amber-500' : 'text-white'}`}>{eventStatus.label}</p>
+          <p className="mt-1 text-[9px] leading-4 text-gray-700">{eventStatus.detail}</p>
+          <input
+            aria-label="Confirmed SFRE date"
+            type="date"
+            value={dateInputValue(lifecycle?.confirmedSfreDate ?? null)}
+            onChange={event => setConfirmedDate(event.target.value)}
+            className="mt-3 w-full border-b border-gray-800 bg-transparent pb-1 text-[10px] text-gray-500 focus:border-blue-700 focus:outline-none"
+          />
+        </div>
+        <Link href="/standards" className="bg-[#0d0d0f] p-4 hover:bg-white/[0.02]">
+          <p className="text-[9px] uppercase tracking-[0.16em] text-gray-700">Ruck Gate</p>
+          <p className={`mt-2 text-sm ${ruckGate.cleared ? 'text-emerald-500' : 'text-amber-500'}`}>{ruckGate.cleared ? 'Cleared' : 'Locked'}</p>
+          <p className="mt-1 text-[9px] leading-4 text-gray-700">2-mile {fmtTime(twoMileSeconds)} · target 16:00</p>
+          <p className="mt-3 text-[9px] uppercase tracking-[0.12em] text-gray-600">View standards →</p>
+        </Link>
+      </section>
+
+      <button
+        onClick={() => { setSelectedWeek(currentWeek); setView('program'); window.scrollTo({ top: 0 }); }}
+        className="mb-4 w-full border border-gray-900 bg-[#0d0d0f] p-4 text-left hover:border-gray-800"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-600">Program</p>
+            <p className="mt-1 text-sm text-white">SFRE Foundation · Week {currentWeek} of {FOUNDATION_WEEK_COUNT}</p>
+          </div>
+          <span className="text-xs text-gray-700">View →</span>
+        </div>
+        <div className="mt-4 h-1 bg-black">
+          <div className="h-1 bg-blue-600" style={{ width: `${programProgress}%` }} />
+        </div>
+      </button>
+
+      <footer className="pt-2 text-center text-[9px] uppercase tracking-[0.15em] text-gray-800">
+        Foundation catalog is the prescription authority
+      </footer>
+    </Shell>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="min-h-screen bg-[#09090a] text-gray-200">
+      <div className="mx-auto max-w-xl px-4 pt-7 pb-16">{children}</div>
+    </main>
+  );
+}
+
+function TopBar({ onBack, label }: { onBack: () => void; label: string }) {
+  return (
+    <div className="mb-7 flex items-center justify-between">
+      <button onClick={onBack} className="text-[10px] font-bold uppercase tracking-[0.15em] text-gray-600 hover:text-white">← Mission Control</button>
+      <span className="text-[10px] uppercase tracking-[0.18em] text-gray-700">{label}</span>
     </div>
   );
 }

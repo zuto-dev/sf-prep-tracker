@@ -71,7 +71,7 @@ export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete, 
   };
 
   return (
-    <div className={`p-3 rounded ${isCompleted ? 'bg-gray-700' : 'bg-gray-750'} ${locked ? 'opacity-75' : ''}`}>
+    <div className={`border p-3 ${isCompleted ? 'border-emerald-900/50 bg-emerald-950/10' : 'border-gray-900 bg-black/20'} ${locked ? 'opacity-75' : ''}`}>
       <div className="flex justify-between items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
@@ -81,10 +81,10 @@ export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete, 
               aria-disabled={locked}
               aria-label={locked ? `toggle complete (locked: ${lockReason ?? 'session locked'})` : 'toggle complete'}
               title={locked ? lockReason : undefined}
-              className={`w-6 h-6 shrink-0 rounded border-2 flex items-center justify-center ${
+              className={`w-6 h-6 shrink-0 border flex items-center justify-center ${
                 locked
                   ? 'border-gray-700 bg-gray-800 cursor-not-allowed opacity-60'
-                  : isCompleted ? 'bg-blue-600 border-blue-600' : 'border-gray-500 hover:border-gray-400'
+                  : isCompleted ? 'bg-emerald-700 border-emerald-700' : 'border-gray-700 hover:border-gray-500'
               }`}
             >
               {isCompleted && !locked && (
@@ -126,7 +126,7 @@ export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete, 
           {exercise.videoId && (
             <button
               onClick={() => setShowVideo(v => !v)}
-              className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs"
+              className="border border-gray-800 px-3 py-1 text-[10px] uppercase tracking-wider text-gray-500 hover:text-white"
             >
               {showVideo ? 'Hide' : 'Video'}
             </button>
@@ -136,8 +136,8 @@ export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete, 
             disabled={locked}
             aria-disabled={locked}
             title={locked ? lockReason : undefined}
-            className={`px-3 py-1 rounded text-xs ${
-              locked ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-emerald-700 hover:bg-emerald-600'
+            className={`border px-3 py-1 text-[10px] uppercase tracking-wider ${
+              locked ? 'border-gray-900 text-gray-700 cursor-not-allowed' : 'border-gray-800 text-gray-500 hover:text-white'
             }`}
           >
             {showLog ? 'Close' : 'Log'}
@@ -146,47 +146,47 @@ export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete, 
       </div>
 
       {showLog && !locked && (
-        <div className="mt-3 ml-9 p-3 bg-gray-900 rounded space-y-2 border border-gray-700">
+        <div className="mt-3 ml-9 p-3 bg-black/40 space-y-2 border border-gray-900">
           <div className="grid grid-cols-2 gap-2">
             <label className="text-xs text-gray-400">
               Date
               <input type="date" value={entry.date} onChange={e => setEntry({...entry, date: e.target.value})}
-                className="w-full bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm mt-1" />
+                className="w-full bg-black text-gray-100 px-2 py-1 border border-gray-800 text-sm mt-1" />
             </label>
             <label className="text-xs text-gray-400">
               Sets
               <input value={entry.sets ?? ''} placeholder={exercise.sets?.toString() ?? ''}
                 onChange={e => setEntry({...entry, sets: e.target.value})}
-                className="w-full bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm mt-1" />
+                className="w-full bg-black text-gray-100 px-2 py-1 border border-gray-800 text-sm mt-1" />
             </label>
             <label className="text-xs text-gray-400">
               Reps
               <input value={entry.reps ?? ''} placeholder={exercise.reps ?? ''}
                 onChange={e => setEntry({...entry, reps: e.target.value})}
-                className="w-full bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm mt-1" />
+                className="w-full bg-black text-gray-100 px-2 py-1 border border-gray-800 text-sm mt-1" />
             </label>
             <label className="text-xs text-gray-400">
               Weight
               <input value={entry.weight ?? ''} placeholder={exercise.weight ?? 'lb'}
                 onChange={e => setEntry({...entry, weight: e.target.value})}
-                className="w-full bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm mt-1" />
+                className="w-full bg-black text-gray-100 px-2 py-1 border border-gray-800 text-sm mt-1" />
             </label>
             <label className="text-xs text-gray-400 col-span-2">
               Time / Distance
               <input value={entry.time ?? ''} placeholder={exercise.duration ?? exercise.distance ?? ''}
                 onChange={e => setEntry({...entry, time: e.target.value})}
-                className="w-full bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm mt-1" />
+                className="w-full bg-black text-gray-100 px-2 py-1 border border-gray-800 text-sm mt-1" />
             </label>
             <label className="text-xs text-gray-400 col-span-2">
               Notes
               <textarea value={entry.notes ?? ''} rows={2}
                 onChange={e => setEntry({...entry, notes: e.target.value})}
-                className="w-full bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm mt-1" />
+                className="w-full bg-black text-gray-100 px-2 py-1 border border-gray-800 text-sm mt-1" />
             </label>
           </div>
           <div className="flex gap-2">
-            <button onClick={save} className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm">Save</button>
-            <button onClick={() => setShowLog(false)} className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">Cancel</button>
+            <button onClick={save} className="bg-white px-3 py-1 text-sm text-black hover:bg-gray-200">Save</button>
+            <button onClick={() => setShowLog(false)} className="border border-gray-800 px-3 py-1 text-sm text-gray-500 hover:text-white">Cancel</button>
           </div>
         </div>
       )}
@@ -195,7 +195,7 @@ export function Exercise({ exercise, logKeyBase, isCompleted, onToggleComplete, 
         <div className="mt-4 ml-9">
           <div className="relative" style={{ paddingBottom: '56.25%' }}>
             <iframe
-              className="absolute top-0 left-0 w-full h-full rounded"
+              className="absolute top-0 left-0 w-full h-full"
               src={`https://www.youtube.com/embed/${exercise.videoId}`}
               title={exercise.name}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
