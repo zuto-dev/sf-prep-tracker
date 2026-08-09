@@ -1,7 +1,7 @@
 // Pure SFRE policy foundation — no browser/localStorage/react imports.
 // Serializable types + pure resolvers only.
 
-export const FOUNDATION_START = new Date('2026-07-06T00:00:00Z');
+export const FOUNDATION_START = new Date('2026-08-09T00:00:00Z');
 export const FOUNDATION_WEEKS = 23;
 export const FOUNDATION_DAYS = 161;
 export const MTI_PEAK_WINDOW_DAYS = 49;
