@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { Nav } from '../components/Nav';
+import { TacticalPageHeader } from '../components/TacticalPageHeader';
 import { WeeklyPlanner } from '../components/WeeklyPlanner';
 import { KnowledgeFocusCard } from '../components/KnowledgeFocusCard';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
@@ -324,35 +324,17 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Animated background gradient */}
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/10 via-gray-950 to-purple-950/15 pointer-events-none" />
-
-      {/* Hero Section */}
-      <div className="relative bg-gradient-to-b from-blue-950/40 to-transparent backdrop-blur-sm pb-8">
-        <div className="max-w-7xl mx-auto p-4">
-          <div className="mb-6 flex justify-between items-start flex-wrap gap-4 animate-fade-in">
-            <div>
-              <h1 className="text-5xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-400 bg-clip-text text-transparent">
-                Cross-Store HUD Matrix
-              </h1>
-              <p className="text-gray-400 mt-2 text-lg">
-                Adaptive Periodization Calendar · <span className="text-blue-400 font-semibold">Day {planDProgress.day} · Week {planDProgress.week}</span>
-              </p>
-            </div>
-            <div className="text-right">
-              <span className="text-xs text-gray-500 block">LAST TELEMETRY RETRIEVAL</span>
-              <span className="text-xs bg-emerald-500/20 text-emerald-400 font-semibold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 mt-1 border border-emerald-500/20">
-                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                Sync Active (LWW Element CRDT)
-              </span>
-            </div>
-          </div>
-          <Nav />
-        </div>
+    <div className="min-h-screen bg-[#09090a] text-gray-100">
+      <div className="max-w-7xl mx-auto p-4">
+        <TacticalPageHeader
+          eyebrow="Week Plan"
+          title="What happens next?"
+          description="One week of training, meals, mobility, and study in a single operational view. Select a day to inspect its real logs."
+          status={`Day ${planDProgress.day} · Week ${planDProgress.week}`}
+        />
       </div>
 
-      <div className="max-w-7xl mx-auto p-4 -mt-6 relative z-10 space-y-6">
+      <div className="max-w-7xl mx-auto p-4 space-y-6">
         
         {/* Predictive & Standards Analytics Banners */}
         <div className="grid md:grid-cols-2 gap-4">
@@ -362,11 +344,11 @@ export default function CalendarPage() {
                 <Flame className="w-6 h-6 text-blue-400" />
               </div>
               <div>
-                <h4 className="text-xs uppercase tracking-wider text-gray-400 font-bold">Predictive OLS Forecast Target</h4>
+                <h4 className="text-xs uppercase tracking-wider text-gray-400 font-bold">Projected 2-Mile Target</h4>
                 <p className="text-sm font-semibold mt-0.5 text-white">
                   Sub-13:30 2-Mile projection: <span className="text-blue-400 font-mono font-bold">{progressForecasts.dateString}</span>
                 </p>
-                <span className="text-[10px] text-gray-500">Based on multi-point ordinary least squares regression (R²: {progressForecasts.r2.toFixed(2)})</span>
+                <span className="text-[10px] text-gray-500">Trend confidence: {progressForecasts.r2.toFixed(2)}. Projection only.</span>
               </div>
             </div>
           )}
@@ -397,7 +379,7 @@ export default function CalendarPage() {
         <div className="bg-gray-900/60 backdrop-blur-md border border-gray-800/50 rounded-2xl p-6 shadow-2xl">
           <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
             <Calendar className="w-5 h-5 text-blue-400" />
-            7-Day Tactical Matrix Hub
+            This Week
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
             {weeklyTimeline.map((item, idx) => {

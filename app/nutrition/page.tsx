@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Nav } from '../components/Nav';
+import { TacticalPageHeader } from '../components/TacticalPageHeader';
 import { FOODS, searchFoods, type Food } from '../data/foods';
 import { SupsLog } from '../components/SupsLog';
 import { useMeals, addMeal, removeMeal, searchMeals, type UserMeal } from '../data/meals';
@@ -711,13 +711,18 @@ export default function NutritionPage() {
   }, [weekDays]);
 
   return (
-    <div className="min-h-screen p-4 max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold mb-1">Nutrition</h1>
-      <p className="text-gray-400 text-sm mb-6">Meal log · macro targets · weekly rollup</p>
-      <Nav />
+    <div className="min-h-screen p-4 max-w-7xl mx-auto bg-[#09090a]">
+      <TacticalPageHeader
+        eyebrow="Fuel"
+        title="What should you eat next?"
+        description="Log the next meal, close today's calorie and protein gaps, and keep the 3–4 week bodyweight trend honest."
+        status={`${fmt(Math.max(0, remaining.p))}g protein left`}
+      />
 
       {/* Presets + targets */}
-      <div className="bg-gray-800 rounded-lg p-4 mb-4">
+      <details className="bg-gray-800 rounded-lg p-4 mb-4">
+        <summary className="cursor-pointer text-xs font-bold uppercase tracking-wider text-gray-500">Targets & presets</summary>
+        <div className="mt-4">
         <div className="flex flex-wrap gap-2 items-center mb-3">
           <span className="text-xs text-gray-400">Preset:</span>
           {(['foundation','peak','custom'] as const).map(k => (
@@ -736,7 +741,8 @@ export default function NutritionPage() {
             </label>
           ))}
         </div>
-      </div>
+        </div>
+      </details>
 
       <div className="flex gap-2 mb-4">
         <button onClick={() => setView('today')}

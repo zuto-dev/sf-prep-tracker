@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Nav } from '../components/Nav';
+import { TacticalPageHeader } from '../components/TacticalPageHeader';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 import { AR_BANK, pickReviewSet, type ARQuestion } from './ar-question-bank';
 import { calculateGTScore, calculateRequiredARForGT, TRACK_GT_REQUIREMENTS, estimateWeeksToTarget } from './psychometric-gt';
@@ -668,8 +668,15 @@ export default function StudyPage() {
     };
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white">
-        <Nav />
+      <div className="min-h-screen bg-[#09090a] text-white p-4">
+        <div className="max-w-4xl mx-auto">
+          <TacticalPageHeader
+            eyebrow="ASVAB"
+            title="Establish your baseline."
+            description="Enter the diagnostic scores required to calculate your GT track and unlock the study engine."
+            status="Diagnostic required"
+          />
+        </div>
         <div className="max-w-xl mx-auto p-4 md:p-8 mt-6">
           <div className="bg-black/40 backdrop-blur-md border border-gray-800/80 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden">
             {/* Ambient Background Glow */}
@@ -792,8 +799,15 @@ export default function StudyPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white">
-      <Nav />
+    <div className="min-h-screen bg-[#09090a] text-white p-4">
+      <div className="max-w-7xl mx-auto">
+        <TacticalPageHeader
+          eyebrow="ASVAB"
+          title="Do the next study session."
+          description="The study engine selects the next useful lesson or drill. Advanced stats and history remain available below."
+          status={`Track ${track}`}
+        />
+      </div>
       
       {/* GT Score Header */}
       <div className="sticky top-14 z-40 bg-gray-900/80 backdrop-blur border-b border-gray-800">
@@ -940,7 +954,7 @@ export default function StudyPage() {
                       <div className="w-5 h-5 rounded-full bg-violet-600/20 border border-violet-500/30 text-[10px] flex items-center justify-center text-violet-300 font-bold shrink-0 mt-0.5">2</div>
                       <div>
                         <p className="text-xs font-semibold text-gray-300">PETERSON&apos;S MODULE TASK</p>
-                        <p className="text-sm text-blue-400 font-medium mt-0.5">📚 Peterson&apos;s Module: {activeSession.session.peterson}</p>
+                        <p className="text-sm text-blue-400 font-medium mt-0.5">Peterson&apos;s Module: {activeSession.session.peterson}</p>
                       </div>
                     </div>
                   )}
@@ -1015,7 +1029,7 @@ export default function StudyPage() {
                             <p className="font-medium text-sm">{session.day} - {session.layer}</p>
                             <p className="text-sm text-gray-400">{session.core}</p>
                             {session.peterson && (
-                              <p className="text-xs text-blue-400 mt-1">📚 {session.peterson}</p>
+                              <p className="text-xs text-blue-400 mt-1">{session.peterson}</p>
                             )}
                           </div>
                         </div>

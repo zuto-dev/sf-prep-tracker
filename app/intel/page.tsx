@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Nav } from '../components/Nav';
+import { TacticalPageHeader } from '../components/TacticalPageHeader';
 
 type Status = 'pending' | 'accepted' | 'rejected';
 type Finding = {
@@ -79,17 +79,16 @@ export default function IntelPage() {
   const history = findings.filter(f => f.status !== 'pending');
 
   return (
-    <main className="min-h-screen bg-gray-950 text-gray-100">
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/20 via-gray-950 to-purple-950/20 pointer-events-none" />
-      <section className="relative bg-gradient-to-b from-blue-950/40 to-transparent pb-8">
-        <div className="max-w-5xl mx-auto p-4">
-          <h1 className="text-5xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-400 bg-clip-text text-transparent">SF Prep Intel</h1>
-          <p className="text-gray-400 mt-2 text-base max-w-2xl">Evidence-backed training, nutrition, and recovery findings — saved here when they matter. You decide what becomes part of your plan.</p>
-          <div className="mt-6"><Nav /></div>
-        </div>
-      </section>
+    <main className="min-h-screen bg-[#09090a] text-gray-100">
+      <div className="max-w-5xl mx-auto p-4">
+        <TacticalPageHeader
+          eyebrow="Research Inbox"
+          title="Decide what matters."
+          description="Evidence-backed findings wait here for a deliberate Adopt or Not Now decision. Research never changes the Foundation prescription automatically."
+          status={`${pending.length} waiting`}
+        />
 
-      <section className="max-w-5xl mx-auto p-4 -mt-6 relative z-10 space-y-6">
+      <section className="space-y-6">
         <div className="rounded-2xl border border-blue-500/20 bg-blue-950/30 p-4">
           <p className="font-bold text-blue-200">How this works</p>
           <p className="mt-1 text-sm leading-relaxed text-gray-300">Research is advice, not an automatic program change. <b>Adopt</b> sends the practical action to your Workouts page as an Active Adjustment. <b>Not now</b> keeps a record without changing anything.</p>
@@ -108,6 +107,7 @@ export default function IntelPage() {
 
         {history.length > 0 && <details className="rounded-2xl border border-gray-800 bg-gray-900/50 p-5"><summary className="cursor-pointer font-bold">Decision history ({history.length})</summary><div className="mt-4 space-y-3">{history.map(finding => <FindingCard key={finding.id} finding={finding} history />)}</div></details>}
       </section>
+      </div>
     </main>
   );
 }

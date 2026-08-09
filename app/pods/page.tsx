@@ -33,7 +33,7 @@
 //     API-suggestion/patch surface. No new packages.
 
 import { useEffect, useMemo, useState } from 'react';
-import { Nav } from '../components/Nav';
+import { TacticalPageHeader } from '../components/TacticalPageHeader';
 import { type Pod } from '../lib/pods-engine.ts';
 import {
   hydrateKnowledgeStore,
@@ -302,27 +302,17 @@ export default function PodsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 pb-16">
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/20 via-gray-950 to-purple-950/20 pointer-events-none" />
-
-      <div className="relative bg-gradient-to-b from-blue-950/40 to-transparent backdrop-blur-sm pb-8">
-        <div className="max-w-6xl mx-auto p-4">
-          <div className="mb-6 flex justify-between items-start flex-wrap gap-4">
-            <div>
-              <h1 className="text-4xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-400 bg-clip-text text-transparent">
-                SF Pod Briefing Center
-              </h1>
-              <p className="text-gray-400 mt-2 text-sm">
-                Foundation Week {foundationWeek} of {FOUNDATION_WEEKS} · Reference-only knowledge library — never a
-                training prescription.
-              </p>
-            </div>
-          </div>
-          <Nav />
-        </div>
+    <div className="min-h-screen bg-[#09090a] text-gray-100 pb-16">
+      <div className="max-w-6xl mx-auto p-4">
+        <TacticalPageHeader
+          eyebrow="SF Pod"
+          title="Listen to the next briefing."
+          description={`Foundation Week ${foundationWeek} of ${FOUNDATION_WEEKS}. Audio and notes are reference-only and never change the training prescription.`}
+          status={newestResolvedAudioPod ? 'Audio ready' : 'No audio ready'}
+        />
       </div>
 
-      <div className="max-w-6xl mx-auto p-4 -mt-6 relative z-10 space-y-6">
+      <div className="max-w-6xl mx-auto p-4 space-y-6">
         {corrupt && (
           <div
             data-testid="knowledge-corrupt-banner"
@@ -352,7 +342,7 @@ export default function PodsPage() {
 
         {/* --- Briefing Center --- */}
         <div className="backdrop-blur-md bg-gray-900/60 border border-gray-800/50 rounded-2xl p-6 shadow-xl">
-          <h2 className="text-lg font-bold text-white mb-1 flex items-center gap-2">📋 Briefing Center</h2>
+          <h2 className="text-lg font-bold text-white mb-1 flex items-center gap-2">Briefing Queue</h2>
           <p className="text-xs text-gray-500 mb-4">
             Foundation-safe items only. Reference-only — does not change your training prescription.
           </p>
@@ -386,7 +376,7 @@ export default function PodsPage() {
 
         {/* --- Compact Knowledge Library --- */}
         <div className="backdrop-blur-md bg-gray-900/60 border border-gray-800/50 rounded-2xl p-6 shadow-xl">
-          <h2 className="text-lg font-bold text-white mb-4">📚 Knowledge Library</h2>
+          <h2 className="text-lg font-bold text-white mb-4">Knowledge Library</h2>
 
           <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-2 mb-4">
             <input

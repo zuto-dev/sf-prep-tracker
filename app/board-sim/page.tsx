@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Nav } from '../components/Nav';
+import { TacticalPageHeader } from '../components/TacticalPageHeader';
 import { pullSfprepSync, pushSfprepSync } from '../lib/sfprep-sync';
 
 const STORAGE_KEY = 'sfprep:boardsim';
@@ -242,11 +242,16 @@ export default function BoardSimPage() {
   const ss = String(elapsed % 60).padStart(2, '0');
 
   return (
-    <main className="max-w-3xl mx-auto p-4 text-gray-100">
-      <Nav />
+    <main className="min-h-screen max-w-3xl mx-auto p-4 text-gray-100 bg-[#09090a]">
+      <TacticalPageHeader
+        eyebrow="Board"
+        title="Answer under pressure."
+        description="A live-voice SFRE mock board with interruptions, pushback, grading, and a coaching debrief."
+        status={status === 'live' ? `Live ${mm}:${ss}` : status}
+      />
       <audio ref={audioRef} autoPlay />
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-bold">🎙️ SFRE Board Simulator</h1>
+        <h1 className="text-xl font-bold">SFRE Board Simulator</h1>
         {status === 'live' && <span className="text-sm font-mono bg-red-900 text-red-100 px-2 py-1 rounded animate-pulse">● LIVE {mm}:{ss}</span>}
       </div>
 

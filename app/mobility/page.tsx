@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Nav } from '../components/Nav';
+import { TacticalPageHeader } from '../components/TacticalPageHeader';
 import type { Move } from '../lib/mobility-types';
 import {
   buildTailoredMobilitySession,
@@ -226,34 +226,27 @@ export default function MobilityPage() {
   const modalMove = modalIdx !== null ? MOVES[modalIdx] : null;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/20 via-gray-950 to-purple-950/20 pointer-events-none" />
-
-      <div className="relative bg-gradient-to-b from-blue-950/40 to-transparent backdrop-blur-sm pb-8">
-        <div className="max-w-6xl mx-auto p-4">
-          <div className="mb-6 animate-fade-in">
-            <h1 className="text-5xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-400 bg-clip-text text-transparent">
-              Daily Mobility
-            </h1>
-            <p className="text-gray-400 mt-2 text-lg">
-              ~12 min · body weight · tissue quality that survives 18 months of ramping load.
-            </p>
-          </div>
-          <Nav />
-        </div>
+    <div className="min-h-screen bg-[#09090a] text-gray-100">
+      <div className="max-w-6xl mx-auto p-4">
+        <TacticalPageHeader
+          eyebrow="Recovery"
+          title="Move better today."
+          description="A short mobility block for the joints tactical training punishes first. Complete the priority moves, then leave."
+          status={`${done}/${MOVES.length} complete`}
+        />
       </div>
 
-      <div className="max-w-6xl mx-auto p-4 -mt-6 relative z-10 space-y-6">
+      <div className="max-w-6xl mx-auto p-4 space-y-6">
         {/* Info card */}
         <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl p-5 border border-gray-800/50 shadow-xl text-sm leading-relaxed text-gray-300">
           <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2 flex-wrap">
-            <span>💡 Why this exists</span>
+            <span>Why this exists</span>
             <span className="text-xs bg-emerald-500/20 text-emerald-400 font-semibold px-2.5 py-0.5 rounded-full">
               {done}/{MOVES.length} complete today
             </span>
             {streak > 0 && (
               <span className="text-xs bg-amber-500/20 text-amber-400 font-semibold px-2.5 py-0.5 rounded-full">
-                🔥 {streak}d streak
+                {streak}d streak
               </span>
             )}
           </h3>
@@ -268,7 +261,7 @@ export default function MobilityPage() {
           <div className="space-y-6">
             <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl border border-gray-800/50 shadow-xl p-5">
               <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-                <span>🧍 Anatomical Viewer</span>
+                <span>Body Map</span>
               </h3>
               <svg viewBox="0 0 200 400" className="w-full max-w-[200px] mx-auto">
                 <ellipse cx="100" cy="40" rx="22" ry="26" fill="none" stroke="#475569" strokeWidth="2" />
@@ -336,7 +329,7 @@ export default function MobilityPage() {
             {/* Tailored session engine output */}
             <div className="backdrop-blur-md bg-gray-900/60 rounded-2xl border border-gray-800/50 shadow-xl p-5">
               <h3 className="text-sm font-bold text-white mb-1 flex items-center gap-2">
-                <span>🎯 Today&apos;s Priority Picks</span>
+                <span>Today&apos;s Priority Picks</span>
               </h3>
               <p className="text-xs text-gray-500 mb-3">
                 Ranked by recent training fatigue{fatigueAreas.length > 0 ? ` (${fatigueAreas.slice(0,3).join(', ')})` : ''} + logged ROM deficits.
