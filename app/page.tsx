@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { WorkoutDay } from './components/WorkoutDay';
+import { GuidedSession } from './components/GuidedSession';
 import { FOUNDATION_WEEKS, FOUNDATION_WEEK_COUNT } from './data/workouts';
 import {
   canonicalTwoMileSeconds,
@@ -96,6 +97,7 @@ export default function Home() {
   const [lifecycle, setLifecycle] = useState<LifecycleStore | null>(null);
   const [completionByDay, setCompletionByDay] = useState<CompletionByDay>({});
   const [twoMileSeconds, setTwoMileSeconds] = useState<number | null>(null);
+  const [guidedActive, setGuidedActive] = useState(false);
 
   const todayKey = today.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase() as (typeof DAYS)[number];
   const currentWorkouts = FOUNDATION_WEEKS[currentWeek - 1];
@@ -214,6 +216,7 @@ export default function Home() {
   }
 
   return (
+    <>
     <Shell>
       <header className="mb-7">
         <div className="flex items-center justify-between">
@@ -276,7 +279,7 @@ export default function Home() {
             ))}
           </ol>
           <button
-            onClick={() => { setView('today'); window.scrollTo({ top: 0 }); }}
+            onClick={() => { setGuidedActive(true); window.scrollTo({ top: 0 }); }}
             className="mt-6 w-full bg-white py-3.5 text-[11px] font-black uppercase tracking-[0.18em] text-black hover:bg-gray-200"
           >
             {todayCompleted ? 'Review Session' : 'Start Training'}
@@ -347,6 +350,33 @@ export default function Home() {
         Foundation catalog is the prescription authority
       </footer>
     </Shell>
+
+      {guidedActive && (
+        <GuidedSession
+          workout={todayWorkout}
+          dayKey={todayKey}
+          logKeyPrefix={`sfprep:log:foundation:${currentWeek}`}
+          completedSet={new Set(completionByDay[todayKey] ?? [])}
+          onToggleComplete={(id) => {
+            const key = `sfprep:log:foundation:${currentWeek}:${todayKey}:completed`;
+            if (typeof window === 'undefined') return;
+            try {
+              const raw = localStorage.getItem(key);
+              const set = new Set<string>(raw ? JSON.parse(raw) : []);
+              if (set.has(id)) set.delete(id); else set.add(id);
+              localStorage.setItem(key, JSON.stringify([...set]));
+              void import('./lib/sfprep-sync').then(m => m.pushSfprepSync());
+              setCompletionByDay(prev => {
+                const next = { ...prev };
+                next[todayKey] = [...set];
+                return next;
+              });
+            } catch { /* ignore */ }
+          }}
+          onExit={() => setGuidedActive(false)}
+        />
+      )}
+    </>
   );
 }
 
