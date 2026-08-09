@@ -337,7 +337,7 @@ export default function Home() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-600">Program</p>
-            <p className="mt-1 text-sm text-white">SFRE Foundation · Week {currentWeek} of {FOUNDATION_WEEK_COUNT}</p>
+            <p className="mt-1 text-sm text-white">The Pipeline · Week {currentWeek} of {FOUNDATION_WEEK_COUNT}</p>
           </div>
           <span className="text-xs text-gray-700">View →</span>
         </div>
